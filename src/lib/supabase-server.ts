@@ -1,10 +1,7 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-let serverClient: SupabaseClient | null = null;
-
+/** Service-role client — สร้างใหม่ทุกครั้ง เพื่อไม่ให้ signInWithPassword ปน session แล้วโดน RLS */
 export function getSupabaseServer() {
-  if (serverClient) return serverClient;
-
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
@@ -12,11 +9,9 @@ export function getSupabaseServer() {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
   }
 
-  serverClient = createClient(supabaseUrl, supabaseServiceKey, {
+  return createClient(supabaseUrl, supabaseServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-
-  return serverClient;
 }
 
 export function authEmailForUserId(userId: string) {

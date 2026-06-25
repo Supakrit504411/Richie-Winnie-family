@@ -12,7 +12,9 @@ export async function GET() {
     if (error) throw error;
     return NextResponse.json({ parents: data ?? [] });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาด';
+    const message = error instanceof Error
+      ? error.message
+      : (error as { message?: string })?.message || 'เกิดข้อผิดพลาด';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

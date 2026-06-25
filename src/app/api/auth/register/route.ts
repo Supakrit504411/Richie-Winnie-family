@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer, authEmailForUserId } from '@/lib/supabase-server';
 import { generateInviteCode } from '@/lib/family';
 
+function dbMessage(error: { message?: string; code?: string } | null | undefined) {
+  return error?.message || error?.code || 'unknown error';
+}
+
+async function createFamilyForParent(username: string): Promise<{ id: string } | { error: string }> {
+  let lastError = 'unknown';
+  let inviteCode = generateInviteCode();
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const { data, error } = await getSupabaseServer()
+      .from('families')
+      .insert({
+        name: `${username} ครอบครัว`,
+        invite_code: inviteCode,
+      })
+      .select('id')
+      .single();
+
+    if (!error && data) return { id: data.id };
+
+    lastError = dbMessage(error);
+    if (lastError.includes('does not exist') || lastError.includes('Could not find the table')) {
+      return {
+        error: 'ยังไม่มีตาราง families — เปิด Supabase → SQL Editor → รันไฟล์ supabase-migration-v2-families.sql',
+      };
+    }
+    inviteCode = generateInviteCode();
+  }
+
+  return { error: lastError };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const {
@@ -14,7 +46,10 @@ export async function POST(request: NextRequest) {
       family_invite_code,
     } = await request.json();
 
-    if (!username || !password || !role) {
+    const normalizedUsername = String(username).trim();
+    const mode = parent_mode === 'join' ? 'join' : 'create';
+
+    if (!normalizedUsername || !password || !role) {
       return NextResponse.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 });
     }
 
@@ -22,14 +57,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'กรุณาเลือกผู้ปกครอง' }, { status: 400 });
     }
 
-    if (role === 'parent' && parent_mode === 'join' && !family_invite_code) {
+    if (role === 'parent' && mode === 'join' && !family_invite_code) {
       return NextResponse.json({ error: 'กรุณาใส่รหัสเชิญครอบครัว' }, { status: 400 });
     }
 
     const { data: existing } = await getSupabaseServer()
       .from('users')
       .select('id')
-      .eq('username', username)
+      .eq('username', normalizedUsername)
       .maybeSingle();
 
     if (existing) {
@@ -39,7 +74,7 @@ export async function POST(request: NextRequest) {
     let familyId: string | null = null;
 
     if (role === 'parent') {
-      if (parent_mode === 'join') {
+      if (mode === 'join') {
         const code = String(family_invite_code).trim().toUpperCase();
         const { data: family, error: familyError } = await getSupabaseServer()
           .from('families')
@@ -47,10 +82,26 @@ export async function POST(request: NextRequest) {
           .eq('invite_code', code)
           .maybeSingle();
 
-        if (familyError || !family) {
+        if (familyError) {
+          const msg = dbMessage(familyError);
+          if (msg.includes('does not exist') || msg.includes('Could not find the table')) {
+            return NextResponse.json({
+              error: 'ยังไม่มีตาราง families — รัน supabase-migration-v2-families.sql ใน Supabase SQL Editor',
+            }, { status: 500 });
+          }
+          return NextResponse.json({ error: msg }, { status: 500 });
+        }
+
+        if (!family) {
           return NextResponse.json({ error: 'รหัสเชิญไม่ถูกต้อง' }, { status: 400 });
         }
         familyId = family.id;
+      } else {
+        const familyResult = await createFamilyForParent(normalizedUsername);
+        if ('error' in familyResult) {
+          return NextResponse.json({ error: familyResult.error }, { status: 500 });
+        }
+        familyId = familyResult.id;
       }
     } else if (role === 'child') {
       const { data: parentUser, error: parentError } = await getSupabaseServer()
@@ -88,34 +139,9 @@ export async function POST(request: NextRequest) {
 
     await getSupabaseServer().auth.admin.updateUserById(userId, { email: finalEmail });
 
-    if (role === 'parent' && parent_mode !== 'join') {
-      let inviteCode = generateInviteCode();
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const { data: newFamily, error: createFamilyError } = await getSupabaseServer()
-          .from('families')
-          .insert({
-            name: `${username} ครอบครัว`,
-            invite_code: inviteCode,
-          })
-          .select('id')
-          .single();
-
-        if (!createFamilyError && newFamily) {
-          familyId = newFamily.id;
-          break;
-        }
-        inviteCode = generateInviteCode();
-      }
-
-      if (!familyId) {
-        await getSupabaseServer().auth.admin.deleteUser(userId);
-        return NextResponse.json({ error: 'สร้างครอบครัวไม่สำเร็จ' }, { status: 500 });
-      }
-    }
-
     const { error: profileError } = await getSupabaseServer().from('users').insert({
       id: userId,
-      username,
+      username: normalizedUsername,
       role,
       avatar: avatar || (role === 'parent' ? '👨' : '🐯'),
       parent_id: role === 'child' ? parent_id : null,
@@ -130,7 +156,13 @@ export async function POST(request: NextRequest) {
 
     if (profileError) {
       await getSupabaseServer().auth.admin.deleteUser(userId);
-      return NextResponse.json({ error: profileError.message }, { status: 500 });
+      const msg = dbMessage(profileError);
+      if (msg.includes('family_id') && (msg.includes('does not exist') || msg.includes('column'))) {
+        return NextResponse.json({
+          error: 'ยังไม่มีคอลัมน์ family_id — รัน supabase-migration-v2-families.sql ใน Supabase SQL Editor',
+        }, { status: 500 });
+      }
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
 
     const { data: sessionData, error: sessionError } = await getSupabaseServer().auth.signInWithPassword({
@@ -142,11 +174,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, userId, family_id: familyId });
     }
 
+    const { data: fullProfile, error: fullProfileError } = await getSupabaseServer()
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (fullProfileError || !fullProfile) {
+      return NextResponse.json({
+        success: true,
+        userId,
+        family_id: familyId,
+        session: sessionData.session,
+        profile: null,
+        warning: fullProfileError?.message || 'โหลดโปรไฟล์ไม่สำเร็จ',
+      });
+    }
+
     return NextResponse.json({
       success: true,
       userId,
       family_id: familyId,
       session: sessionData.session,
+      profile: fullProfile,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาด';

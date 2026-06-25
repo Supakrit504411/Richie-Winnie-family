@@ -23,9 +23,25 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 async function fetchProfile(userId: string): Promise<User | null> {
-  const { data, error } = await supabase.from('users').select('*').eq('id', userId).single();
-  if (error || !data) return null;
-  return data as User;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch('/api/auth/profile', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.profile as User) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -33,25 +49,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setUser(profile);
+    let mounted = true;
+
+    async function initAuth() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted && session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          if (profile) setUser(profile);
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
-    });
+    }
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setUser(profile);
-      } else {
-        setUser(null);
+      if (event === 'INITIAL_SESSION') return;
+
+      try {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          if (profile) setUser(profile);
+        } else {
+          setUser(null);
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function login(username: string, password: string) {
@@ -66,8 +98,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session) {
         await supabase.auth.setSession(data.session);
-        const profile = await fetchProfile(data.session.user.id);
-        if (profile) setUser(profile);
+        const profile = data.profile ?? await fetchProfile(data.session.user.id);
+        if (profile) {
+          setUser(profile);
+        } else {
+          return { success: false, error: 'โหลดข้อมูลผู้ใช้ไม่สำเร็จ — ลองสมัครใหม่' };
+        }
       }
       return { success: true };
     } catch (error: unknown) {
@@ -104,8 +140,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.session) {
         await supabase.auth.setSession(data.session);
-        const profile = await fetchProfile(data.session.user.id);
-        if (profile) setUser(profile);
+        const profile = data.profile ?? await fetchProfile(data.session.user.id);
+        if (profile) {
+          setUser(profile);
+        } else {
+          return { success: false, error: 'โหลดข้อมูลผู้ใช้ไม่สำเร็จ — ลองสมัครใหม่' };
+        }
       }
       return { success: true };
     } catch (error: unknown) {

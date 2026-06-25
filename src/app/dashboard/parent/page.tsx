@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest } from '@/lib/types';
 
 export default function ParentDashboard() {
@@ -26,7 +27,8 @@ export default function ParentDashboard() {
       router.push('/dashboard/child');
       return;
     }
-    fetchParentData();
+    setParent(user);
+    fetchParentData(user);
   }, [user, loading, router]);
 
   async function handleLogout() {
@@ -34,26 +36,11 @@ export default function ParentDashboard() {
     router.replace('/');
   }
 
-  async function fetchParentData() {
-    if (!user) return;
-
-    const { data: parentData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (parentData) setParent(parentData);
-
-    const familyId = parentData?.family_id;
-    let childrenQuery = supabase.from('users').select('*').eq('role', 'child');
-    if (familyId) {
-      childrenQuery = childrenQuery.eq('family_id', familyId);
-    } else {
-      childrenQuery = childrenQuery.eq('parent_id', user.id);
-    }
-    const { data: childrenData } = await childrenQuery;
-    if (childrenData) setChildren(childrenData);
+  async function fetchParentData(profile: User) {
+    const membersRes = await fetchWithAuth('/api/family/members?role=child');
+    const membersData = await membersRes.json();
+    const childrenData = membersRes.ok ? (membersData.members as User[]) : [];
+    setChildren(childrenData);
 
     const childIds = (childrenData ?? []).map(c => c.id);
     if (childIds.length > 0) {
@@ -75,12 +62,12 @@ export default function ParentDashboard() {
       setRedemptions([]);
     }
 
-    const wishRes = await fetch(`/api/wishlist?parent_id=${user.id}`);
+    const wishRes = await fetch(`/api/wishlist?parent_id=${profile.id}`);
     const wishData = await wishRes.json();
     if (wishData.requests) setWishlist(wishData.requests);
   }
 
-  if (loading || (user && !parent)) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-xl font-bold">กำลังโหลด...</div>
@@ -89,7 +76,8 @@ export default function ParentDashboard() {
   }
 
   if (!user) return null;
-  if (!parent) return null;
+
+  const parentProfile = parent ?? user;
 
   const pendingSubmissions = submissions.filter(s => s.status === 'pending');
   const pendingRedemptions = redemptions.filter(r => r.status === 'pending');
@@ -110,7 +98,7 @@ export default function ParentDashboard() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-xl font-bold">ภาพรวม</h2>
-            <p className="muted">{parent.username}</p>
+            <p className="muted">{parentProfile.username}</p>
           </div>
           <button onClick={handleLogout} className="btn btn-sm btn-ghost">
             ออก
@@ -158,7 +146,7 @@ export default function ParentDashboard() {
           <ShopTab />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab parent={parent} />
+          <SettingsTab parent={parentProfile} />
         )}
       </div>
 

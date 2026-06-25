@@ -49,6 +49,17 @@ WHERE c.role = 'child'
   AND c.family_id IS NULL
   AND p.family_id IS NOT NULL;
 
+-- Helper: หลีกเลี่ยง RLS infinite recursion
+CREATE OR REPLACE FUNCTION public.get_my_family_id()
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT family_id FROM public.users WHERE id = auth.uid();
+$$;
+
 -- ============================================================
 -- RLS: families
 -- ============================================================
@@ -57,12 +68,7 @@ ALTER TABLE public.families ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Family members can read own family" ON public.families;
 CREATE POLICY "Family members can read own family"
   ON public.families FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.family_id = families.id
-    )
-  );
+  USING (id = public.get_my_family_id());
 
 -- ============================================================
 -- RLS: users — อ่านสมาชิกในครอบครัวเดียวกัน
@@ -76,10 +82,7 @@ CREATE POLICY "Users can read family members"
     auth.uid() = id
     OR (
       family_id IS NOT NULL
-      AND family_id IN (
-        SELECT u.family_id FROM public.users u
-        WHERE u.id = auth.uid() AND u.family_id IS NOT NULL
-      )
+      AND family_id = public.get_my_family_id()
     )
   );
 

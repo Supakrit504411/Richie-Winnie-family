@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, WishlistRequest } from '@/lib/types';
 import { CHAR_LEVELS, HOUSE_LEVELS, CAR_LEVELS, charLevelInfo, fmtCoin } from '@/lib/utils';
 import { submissionStatusEmoji } from '@/lib/family';
@@ -28,7 +29,8 @@ export default function ChildDashboard() {
       router.push('/dashboard/parent');
       return;
     }
-    fetchChildData();
+    setChild(user);
+    fetchChildData(user);
   }, [user, loading, router]);
 
   async function handleLogout() {
@@ -36,29 +38,17 @@ export default function ChildDashboard() {
     router.replace('/');
   }
 
-  async function fetchChildData() {
-    if (!user) return;
+  async function fetchChildData(profile: User) {
+    const membersRes = await fetchWithAuth('/api/family/members?role=child');
+    const membersData = await membersRes.json();
+    const siblingsData = membersRes.ok
+      ? (membersData.members as User[]).filter(s => s.id !== profile.id)
+      : [];
 
-    const { data: childData } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    if (siblingsData.length > 0) {
+      setSiblings(siblingsData);
 
-    if (childData) setChild(childData);
-
-    const familyId = childData?.family_id;
-    if (familyId) {
-      const { data: siblingsData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('family_id', familyId)
-        .eq('role', 'child')
-        .neq('id', user.id);
-
-      if (siblingsData) setSiblings(siblingsData);
-
-      const siblingIds = (siblingsData ?? []).map(s => s.id);
+      const siblingIds = siblingsData.map(s => s.id);
       if (siblingIds.length > 0) {
         const today = new Date().toISOString().split('T')[0];
         const { data: sibSubs } = await supabase
@@ -80,13 +70,13 @@ export default function ChildDashboard() {
     const { data: subsData } = await supabase
       .from('submissions')
       .select('*')
-      .eq('child_id', user.id)
+      .eq('child_id', profile.id)
       .order('created_at', { ascending: false });
 
     if (subsData) setSubmissions(subsData);
   }
 
-  if (loading || (user && !child)) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-xl font-bold">กำลังโหลด...</div>
@@ -95,9 +85,10 @@ export default function ChildDashboard() {
   }
 
   if (!user) return null;
-  if (!child) return null;
 
-  const levelInfo = charLevelInfo(child.xp);
+  const childProfile = child ?? user;
+
+  const levelInfo = charLevelInfo(childProfile.xp);
 
   const tabs = [
     { id: 'home' as const, label: 'บ้าน', icon: '🏠' },
@@ -112,9 +103,9 @@ export default function ChildDashboard() {
       <div className="p-4 card mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <span className="text-4xl">{child.avatar || '🐯'}</span>
+            <span className="text-4xl">{childProfile.avatar || '🐯'}</span>
             <div>
-              <h2 className="text-xl font-bold">{child.username}</h2>
+              <h2 className="text-xl font-bold">{childProfile.username}</h2>
               <p className="muted">Level {levelInfo.level}</p>
             </div>
           </div>
@@ -126,7 +117,7 @@ export default function ChildDashboard() {
         {/* XP Progress */}
         <div className="mb-2">
           <div className="flex justify-between text-sm mb-1">
-            <span>EXP: {child.xp}</span>
+            <span>EXP: {childProfile.xp}</span>
             <span>{levelInfo.next ? `Next: ${levelInfo.next.xp}` : 'Max!'}</span>
           </div>
           <div className="progress-bar">
@@ -139,15 +130,15 @@ export default function ChildDashboard() {
 
         {/* Stats */}
         <div className="flex gap-4 mt-3">
-          <div className="pill">🪙 {fmtCoin(child.coins)}</div>
-          <div className="pill">🔥 {child.streak} วัน</div>
+          <div className="pill">🪙 {fmtCoin(childProfile.coins)}</div>
+          <div className="pill">🔥 {childProfile.streak} วัน</div>
         </div>
       </div>
 
       {/* Tab Content */}
       <div className="px-4">
         {activeTab === 'home' && (
-          <HomeTab child={child} levelInfo={levelInfo} siblings={siblings} />
+          <HomeTab child={childProfile} levelInfo={levelInfo} siblings={siblings} />
         )}
         {activeTab === 'quests' && (
           <QuestsTab

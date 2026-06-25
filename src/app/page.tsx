@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { User } from '@/lib/types';
 
@@ -17,6 +18,9 @@ export default function Home() {
   const [selectedParent, setSelectedParent] = useState('');
   const [parentMode, setParentMode] = useState<'create' | 'join'>('create');
   const [familyInviteCode, setFamilyInviteCode] = useState('');
+  const [showReset, setShowReset] = useState(false);
+  const [resetInviteCode, setResetInviteCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => {
     if (mode === 'register' && role === 'child') {
@@ -41,8 +45,35 @@ export default function Home() {
     e.preventDefault();
     setError('');
 
+    if (mode === 'login' && showReset) {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: username.trim(),
+          new_password: newPassword,
+          family_invite_code: resetInviteCode.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'รีเซ็ตรหัสไม่สำเร็จ');
+        return;
+      }
+      if (data.session && data.profile) {
+        await supabase.auth.setSession(data.session);
+        router.push(data.profile.role === 'parent' ? '/dashboard/parent' : '/dashboard/child');
+        return;
+      }
+      setShowReset(false);
+      setPassword(newPassword);
+      setNewPassword('');
+      setError('เปลี่ยนรหัสแล้ว — ลองเข้าสู่ระบบด้วยรหัสใหม่');
+      return;
+    }
+
     if (mode === 'login') {
-      const result = await login(username, password);
+      const result = await login(username.trim(), password);
       if (!result.success) {
         setError(result.error || 'เข้าสู่ระบบไม่สำเร็จ');
       }
@@ -56,7 +87,7 @@ export default function Home() {
         return;
       }
       const result = await register(
-        username,
+        username.trim(),
         password,
         role,
         undefined,
@@ -225,6 +256,34 @@ export default function Home() {
               />
             </div>
 
+            {mode === 'login' && showReset && (
+              <>
+                <p className="muted text-sm mb-3">ใส่รหัสเชิญครอบครัว (ดูจาก Supabase → Table Editor → families)</p>
+                <div className="field">
+                  <label className="field-label">รหัสเชิญครอบครัว</label>
+                  <input
+                    type="text"
+                    value={resetInviteCode}
+                    onChange={(e) => setResetInviteCode(e.target.value.toUpperCase())}
+                    placeholder="เช่น ABC123"
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label">รหัสผ่านใหม่</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="อย่างน้อย 4 ตัว"
+                    required
+                    minLength={4}
+                  />
+                </div>
+              </>
+            )}
+
+            {mode === 'login' && !showReset && (
             <div className="field">
               <label className="field-label">รหัสผ่าน</label>
               <input
@@ -236,6 +295,21 @@ export default function Home() {
                 minLength={4}
               />
             </div>
+            )}
+
+            {mode === 'register' && (
+            <div className="field">
+              <label className="field-label">รหัสผ่าน</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="กรอกรหัสผ่าน"
+                required
+                minLength={4}
+              />
+            </div>
+            )}
 
             {error && (
               <div className="mb-4 p-3 rounded-xl" style={{ background: '#FDEAEA', color: '#C13B3B' }}>
@@ -247,8 +321,18 @@ export default function Home() {
               type="submit"
               className="btn btn-primary btn-block"
             >
-              {mode === 'login' ? 'เข้าสู่ระบบ' : 'สมัคร'}
+              {mode === 'login' && showReset ? 'ตั้งรหัสใหม่' : mode === 'login' ? 'เข้าสู่ระบบ' : 'สมัคร'}
             </button>
+
+            {mode === 'login' && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-block mt-2"
+                onClick={() => { setShowReset(!showReset); setError(''); }}
+              >
+                {showReset ? '← กลับไปเข้าสู่ระบบ' : 'ลืมรหัสผ่าน?'}
+              </button>
+            )}
           </form>
         </div>
 
