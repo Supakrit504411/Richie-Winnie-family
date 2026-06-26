@@ -1,40 +1,43 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { showAlert } from '@/components/SweetAlert';
 
 interface EvidenceUploaderProps {
   onUpload: (urls: string[]) => void;
   existingUrls?: string[];
+  userId?: string;
 }
 
-export default function EvidenceUploader({ onUpload, existingUrls = [] }: EvidenceUploaderProps) {
+export default function EvidenceUploader({
+  onUpload,
+  existingUrls = [],
+  userId = 'evidence',
+}: EvidenceUploaderProps) {
   const [urls, setUrls] = useState<string[]>(existingUrls);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setUrls(existingUrls);
+  }, [existingUrls]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files) return;
 
-    const newUrls: string[] = [];
-
-    Array.from(files).forEach(file => {
+    Array.from(files).forEach((file) => {
       if (!file.type.startsWith('image/')) return;
 
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          newUrls.push(event.target.result as string);
-          
-          if (newUrls.length === files.length) {
-            setUrls(prev => [...prev, ...newUrls]);
-          }
+          setUrls((prev) => [...prev, event.target!.result as string]);
         }
       };
       reader.readAsDataURL(file);
     });
 
-    // Reset input
     e.target.value = '';
   }
 
@@ -47,23 +50,18 @@ export default function EvidenceUploader({ onUpload, existingUrls = [] }: Eviden
       const uploadedUrls: string[] = [];
 
       for (const url of urls) {
-        // Skip if already a public URL (from existing or previous upload)
         if (url.startsWith('http') && url.includes('supabase')) {
           uploadedUrls.push(url);
           continue;
         }
 
-        // Convert base64 to blob
         const response = await fetch(url);
         const blob = await response.blob();
-        
-        // Create File object
         const file = new File([blob], `image_${Date.now()}.jpg`, { type: 'image/jpeg' });
 
-        // Upload to API
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('userId', 'evidence');
+        formData.append('userId', userId);
 
         const uploadRes = await fetch('/api/upload', {
           method: 'POST',
@@ -76,18 +74,32 @@ export default function EvidenceUploader({ onUpload, existingUrls = [] }: Eviden
         }
       }
 
+      if (uploadedUrls.length === 0) {
+        showAlert({ title: 'อัปโหลดไม่สำเร็จ', text: 'กรุณาลองใหม่', icon: 'error' });
+        return;
+      }
+
+      setUrls(uploadedUrls);
       onUpload(uploadedUrls);
-      setUrls([]);
+      showAlert({
+        title: 'อัปโหลดสำเร็จ',
+        text: `แนบภาพ ${uploadedUrls.length} รูปแล้ว`,
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
     } catch (error) {
       console.error('Upload error:', error);
-      alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่');
+      showAlert({ title: 'อัปโหลดไม่สำเร็จ', text: 'กรุณาลองใหม่', icon: 'error' });
     } finally {
       setUploading(false);
     }
   }
 
   function removeUrl(index: number) {
-    setUrls(prev => prev.filter((_, i) => i !== index));
+    const next = urls.filter((_, i) => i !== index);
+    setUrls(next);
+    onUpload(next);
   }
 
   return (
@@ -116,6 +128,7 @@ export default function EvidenceUploader({ onUpload, existingUrls = [] }: Eviden
             <div key={idx} className="relative">
               <img src={url} alt={`Evidence ${idx + 1}`} className="evidence-thumb" />
               <button
+                type="button"
                 className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center"
                 onClick={() => removeUrl(idx)}
               >
@@ -126,13 +139,14 @@ export default function EvidenceUploader({ onUpload, existingUrls = [] }: Eviden
         </div>
       )}
 
-      {urls.length > 0 && (
+      {urls.some((url) => url.startsWith('data:')) && (
         <button
+          type="button"
           className="btn btn-primary btn-sm mt-3"
           onClick={handleUpload}
           disabled={uploading}
         >
-          {uploading ? 'กำลังอัปโหลด...' : `อัปโหลด ${urls.length} ภาพ`}
+          {uploading ? 'กำลังอัปโหลด...' : `อัปโหลด ${urls.filter((u) => u.startsWith('data:')).length} ภาพ`}
         </button>
       )}
     </div>

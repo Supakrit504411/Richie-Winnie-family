@@ -8,6 +8,7 @@ import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, WishlistRequest } from '@/lib/types';
 import { CHAR_LEVELS, HOUSE_LEVELS, CAR_LEVELS, charLevelInfo, fmtCoin } from '@/lib/utils';
 import { submissionStatusEmoji } from '@/lib/family';
+import { showAlert, hideAlert } from '@/components/SweetAlert';
 
 export default function ChildDashboard() {
   const { user, logout, loading } = useAuth();
@@ -65,7 +66,13 @@ export default function ChildDashboard() {
       .select('*')
       .eq('active', true);
 
-    if (missionsData) setMissions(missionsData);
+    if (missionsData) {
+      setMissions(
+        missionsData.filter(
+          (m) => !m.target_child_id || m.target_child_id === profile.id
+        )
+      );
+    }
 
     const { data: subsData } = await supabase
       .from('submissions')
@@ -330,20 +337,24 @@ function QuestsTab({
   async function handleSubmit(missionId: string) {
     if (!childId) return;
 
+    setUploading(true);
+    showAlert({
+      title: 'กำลังส่งภารกิจ...',
+      icon: 'loading',
+      showConfirmButton: false,
+    });
+
     try {
-      // Upload evidence to Supabase Storage
       let urls: string[] = [];
       if (evidenceUrls.length > 0) {
         const uploadedUrls: string[] = [];
 
         for (const url of evidenceUrls) {
-          // Skip if already a public URL
           if (url.startsWith('http') && url.includes('supabase')) {
             uploadedUrls.push(url);
             continue;
           }
 
-          // Convert base64 to blob and upload
           const response = await fetch(url);
           const blob = await response.blob();
           const file = new File([blob], `evidence_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -377,12 +388,28 @@ function QuestsTab({
 
       if (error) throw error;
 
+      hideAlert();
+      showAlert({
+        title: 'ส่งภารกิจสำเร็จ!',
+        text: 'รอพ่อแม่ตรวจสอบนะ',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+
       setShowSubmit(null);
       setNote('');
       setEvidenceUrls([]);
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 1500);
     } catch (err: any) {
-      alert('Error submitting: ' + err.message);
+      hideAlert();
+      showAlert({
+        title: 'ส่งไม่สำเร็จ',
+        text: err.message,
+        icon: 'error',
+      });
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -390,16 +417,19 @@ function QuestsTab({
     const files = e.target.files;
     if (!files) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setEvidenceUrls(prev => [...prev, event.target!.result as string]);
-      }
-    };
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
 
-    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setEvidenceUrls((prev) => [...prev, event.target!.result as string]);
+        }
+      };
       reader.readAsDataURL(file);
     });
+
+    e.target.value = '';
   }
 
   return (
@@ -565,7 +595,11 @@ function ShopTab({ childId }: { childId: string }) {
       setShowWishForm(false);
       fetchWishlist();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'ส่งคำขอไม่สำเร็จ');
+      showAlert({
+        title: 'ส่งคำขอไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
     } finally {
       setWishSubmitting(false);
     }
@@ -587,10 +621,17 @@ function ShopTab({ childId }: { childId: string }) {
     });
 
     if (error) {
-      alert('Error: ' + error.message);
+      showAlert({ title: 'แลกไม่สำเร็จ', text: error.message, icon: 'error' });
     } else {
+      showAlert({
+        title: 'ส่งคำขอแลกแล้ว!',
+        text: 'รอพ่อแม่จัดให้นะ',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
       setShowRedeem(null);
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 1500);
     }
   }
 

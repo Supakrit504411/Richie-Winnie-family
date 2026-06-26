@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Kanit, Sarabun } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "@/lib/auth";
+import { Providers } from "@/components/Providers";
 
 const kanit = Kanit({
   weight: ['500', '600', '700', '800'],
@@ -28,9 +28,9 @@ export default function RootLayout({
   return (
     <html lang="th" className={`${kanit.variable} ${sarabun.variable}`}>
       <body className="min-h-full flex flex-col font-sarabun">
-        <AuthProvider>
+        <Providers>
           {children}
-        </AuthProvider>
+        </Providers>
       </body>
     </html>
   );

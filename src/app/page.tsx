@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { User } from '@/lib/types';
+import { showAlert, hideAlert } from '@/components/SweetAlert';
 
 export default function Home() {
   const { user, login, register, loading } = useAuth();
@@ -21,6 +22,7 @@ export default function Home() {
   const [showReset, setShowReset] = useState(false);
   const [resetInviteCode, setResetInviteCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (mode === 'register' && role === 'child') {
@@ -44,7 +46,18 @@ export default function Home() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
 
+    const loadingTitle =
+      mode === 'login'
+        ? showReset
+          ? 'กำลังรีเซ็ตรหัส...'
+          : 'กำลังเข้าสู่ระบบ...'
+        : 'กำลังสมัครสมาชิก...';
+
+    showAlert({ title: loadingTitle, icon: 'loading', showConfirmButton: false });
+
+    try {
     if (mode === 'login' && showReset) {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
@@ -57,14 +70,17 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
+        hideAlert();
         setError(data.error || 'รีเซ็ตรหัสไม่สำเร็จ');
         return;
       }
       if (data.session && data.profile) {
+        hideAlert();
         await supabase.auth.setSession(data.session);
         router.push(data.profile.role === 'parent' ? '/dashboard/parent' : '/dashboard/child');
         return;
       }
+      hideAlert();
       setShowReset(false);
       setPassword(newPassword);
       setNewPassword('');
@@ -75,14 +91,17 @@ export default function Home() {
     if (mode === 'login') {
       const result = await login(username.trim(), password);
       if (!result.success) {
+        hideAlert();
         setError(result.error || 'เข้าสู่ระบบไม่สำเร็จ');
       }
     } else {
       if (role === 'child' && !selectedParent) {
+        hideAlert();
         setError('กรุณาเลือกพ่อ/แม่');
         return;
       }
       if (role === 'parent' && parentMode === 'join' && !familyInviteCode.trim()) {
+        hideAlert();
         setError('กรุณาใส่รหัสเชิญครอบครัว');
         return;
       }
@@ -96,8 +115,12 @@ export default function Home() {
         role === 'parent' && parentMode === 'join' ? familyInviteCode.trim() : undefined
       );
       if (!result.success) {
+        hideAlert();
         setError(result.error || 'สมัครไม่สำเร็จ');
       }
+    }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -320,8 +343,15 @@ export default function Home() {
             <button
               type="submit"
               className="btn btn-primary btn-block"
+              disabled={submitting}
             >
-              {mode === 'login' && showReset ? 'ตั้งรหัสใหม่' : mode === 'login' ? 'เข้าสู่ระบบ' : 'สมัคร'}
+              {submitting
+                ? 'กำลังดำเนินการ...'
+                : mode === 'login' && showReset
+                  ? 'ตั้งรหัสใหม่'
+                  : mode === 'login'
+                    ? 'เข้าสู่ระบบ'
+                    : 'สมัคร'}
             </button>
 
             {mode === 'login' && (

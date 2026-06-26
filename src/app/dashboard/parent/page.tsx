@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest } from '@/lib/types';
 import EvidenceUploader from '@/components/EvidenceUploader';
+import { showAlert, hideAlert } from '@/components/SweetAlert';
 
 export default function ParentDashboard() {
   const { user, logout, loading } = useAuth();
@@ -141,7 +142,7 @@ export default function ParentDashboard() {
           />
         )}
         {activeTab === 'missions' && (
-          <MissionsTab />
+          <MissionsTab children={children} />
         )}
         {activeTab === 'shop' && (
           <ShopTab />
@@ -216,6 +217,24 @@ function ReviewTab({
   const [wishPrices, setWishPrices] = useState<Record<string, number>>({});
 
   const childMap = Object.fromEntries(children.map(c => [c.id, c]));
+  const [missionMap, setMissionMap] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    async function loadMissions() {
+      const missionIds = [...new Set(submissions.map(s => s.mission_id))];
+      if (missionIds.length === 0) return;
+      const { data } = await supabase
+        .from('missions')
+        .select('id, title, icon')
+        .in('id', missionIds);
+      if (data) {
+        const map: Record<string, any> = {};
+        data.forEach((m: any) => { map[m.id] = m; });
+        setMissionMap(map);
+      }
+    }
+    loadMissions();
+  }, [submissions]);
 
   async function handleApprove(subId: string) {
     const sub = submissions.find(s => s.id === subId);
@@ -244,7 +263,7 @@ function ReviewTab({
     }).eq('id', subId);
 
     if (error) {
-      alert('Error: ' + error.message);
+      showAlert({ title: 'เกิดข้อผิดพลาด', text: error.message, icon: 'error' });
       return;
     }
 
@@ -257,7 +276,7 @@ function ReviewTab({
       .eq('id', sub.child_id);
 
     if (updateError) {
-      alert('Error updating coins: ' + updateError.message);
+      showAlert({ title: 'เกิดข้อผิดพลาด', text: 'อัปเดตคะแนนไม่สำเร็จ', icon: 'error' });
       return;
     }
 
@@ -268,7 +287,14 @@ function ReviewTab({
       kind: 'mission',
     });
 
-    window.location.reload();
+    showAlert({
+      title: 'อนุมัติแล้ว!',
+      text: `ให้รางวัล +${mission.coin_reward} 🪙`,
+      icon: 'success',
+      timer: 1500,
+      showConfirmButton: false,
+    });
+    setTimeout(() => window.location.reload(), 1200);
   }
 
   async function handleReject(subId: string) {
@@ -282,7 +308,7 @@ function ReviewTab({
     }).eq('id', subId);
 
     if (error) {
-      alert('Error: ' + error.message);
+      showAlert({ title: 'เกิดข้อผิดพลาด', text: error.message, icon: 'error' });
       return;
     }
 
@@ -310,7 +336,8 @@ function ReviewTab({
     setShowReject(null);
     setRejectReason('');
     setPenalty(0);
-    window.location.reload();
+    showAlert({ title: 'บันทึกแล้ว', text: 'ปฏิเสธภารกิจแล้ว', icon: 'success', timer: 1500, showConfirmButton: false });
+    setTimeout(() => window.location.reload(), 1200);
   }
 
   async function handleWishApprove(wishId: string) {
@@ -323,7 +350,7 @@ function ReviewTab({
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || 'อนุมัติไม่สำเร็จ');
+      showAlert({ title: 'อนุมัติไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
       return;
     }
     window.location.reload();
@@ -338,7 +365,7 @@ function ReviewTab({
     });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || 'ปฏิเสธไม่สำเร็จ');
+      showAlert({ title: 'ปฏิเสธไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
       return;
     }
     window.location.reload();
@@ -409,11 +436,19 @@ function ReviewTab({
         pendingSubs.map(sub => (
           <div key={sub.id} className="card mb-3">
             <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="font-bold">{sub.note || 'ภารกิจ'}</p>
-                <p className="muted text-sm">
-                  {new Date(sub.submission_date).toLocaleDateString('th-TH')}
-                </p>
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">
+                  {missionMap[sub.mission_id]?.icon || childMap[sub.child_id]?.avatar || '📋'}
+                </span>
+                <div>
+                  <p className="font-bold">
+                    {missionMap[sub.mission_id]?.title || sub.note || 'ภารกิจ'}
+                  </p>
+                  <p className="muted text-sm">
+                    {childMap[sub.child_id]?.avatar} {childMap[sub.child_id]?.username || 'ลูก'} •{' '}
+                    {new Date(sub.submission_date).toLocaleDateString('th-TH')}
+                  </p>
+                </div>
               </div>
               <span className="pill st-pending">รอตรวจ</span>
             </div>
@@ -531,7 +566,7 @@ function ReviewTab({
   );
 }
 
-function MissionsTab() {
+function MissionsTab({ children }: { children: User[] }) {
   const { user } = useAuth();
   const [missions, setMissions] = useState<Mission[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -544,6 +579,7 @@ function MissionsTab() {
   const [endDate, setEndDate] = useState('');
   const [recurringDays, setRecurringDays] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [targetChildId, setTargetChildId] = useState('');
   const [coin, setCoin] = useState(10);
   const [xp, setXp] = useState(10);
 
@@ -574,9 +610,11 @@ function MissionsTab() {
           coin_reward: coin,
           xp_reward: xp,
           attachments: attachments.length > 0 ? attachments : null,
+          target_child_id: targetChildId || null,
         })
         .eq('id', editingId);
-      if (error) alert('Error: ' + error.message);
+      if (error) showAlert({ title: 'แก้ไขไม่สำเร็จ', text: error.message, icon: 'error' });
+      else showAlert({ title: 'บันทึกแล้ว', icon: 'success', timer: 1500, showConfirmButton: false });
     } else {
       const { error } = await supabase.from('missions').insert({
         title,
@@ -590,8 +628,10 @@ function MissionsTab() {
         xp_reward: xp,
         created_by: user!.id,
         attachments: attachments.length > 0 ? attachments : null,
+        target_child_id: targetChildId || null,
       });
-      if (error) alert('Error: ' + error.message);
+      if (error) showAlert({ title: 'สร้างไม่สำเร็จ', text: error.message, icon: 'error' });
+      else showAlert({ title: 'สร้างภารกิจแล้ว', icon: 'success', timer: 1500, showConfirmButton: false });
     }
 
     setShowForm(false);
@@ -604,6 +644,7 @@ function MissionsTab() {
     setEndDate('');
     setRecurringDays([]);
     setAttachments([]);
+    setTargetChildId('');
     setCoin(10);
     setXp(10);
     fetchMissions();
@@ -629,6 +670,8 @@ function MissionsTab() {
     setStartDate(mission.start_date || '');
     setEndDate(mission.end_date || '');
     setRecurringDays(mission.recurring_days || []);
+    setAttachments(mission.attachments || []);
+    setTargetChildId(mission.target_child_id || '');
     setCoin(mission.coin_reward);
     setXp(mission.xp_reward);
     setShowForm(true);
@@ -741,10 +784,28 @@ function MissionsTab() {
           </div>
 
           <div className="field">
+            <label className="field-label">👤 มอบหมายให้ (ไม่จำเป็น)</label>
+            <select
+              className="w-full p-3 rounded-xl border-2"
+              style={{ borderColor: 'var(--line)' }}
+              value={targetChildId}
+              onChange={(e) => setTargetChildId(e.target.value)}
+            >
+              <option value="">ลูกทุกคน</option>
+              {children.map((child) => (
+                <option key={child.id} value={child.id}>
+                  {child.avatar} {child.username}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
             <label className="field-label">📎 แนบภาพ/ไฟล์ (ไม่จำเป็น)</label>
             <EvidenceUploader
               onUpload={(urls) => setAttachments(urls)}
               existingUrls={attachments}
+              userId={user?.id}
             />
           </div>
 
@@ -796,6 +857,9 @@ function MissionsTab() {
                 <p className="muted text-sm">
                   +{mission.coin_reward} 🪙 | +{mission.xp_reward} XP
                   {mission.deadline && ` | ⏰ ${mission.deadline}`}
+                  {mission.target_child_id && (
+                    <> | 👤 {children.find((c) => c.id === mission.target_child_id)?.username || 'ลูก'}</>
+                  )}
                 </p>
               </div>
             </div>
@@ -1004,7 +1068,11 @@ function SettingsTab({ parent }: { parent: User }) {
     if (newValue && 'Notification' in window) {
       Notification.requestPermission().then(perm => {
         if (perm !== 'granted') {
-          alert('ไม่ได้รับอนุญาตให้ส่งการแจ้งเตือน กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์');
+          showAlert({
+            title: 'ไม่สามารถส่งเตือนได้',
+            text: 'การแจ้งเตือนถูกปิดในการตั้งค่าเบราว์เซอร์',
+            icon: 'warning',
+          });
           setNotificationsEnabled(false);
           localStorage.setItem('notifications_enabled', 'false');
         }

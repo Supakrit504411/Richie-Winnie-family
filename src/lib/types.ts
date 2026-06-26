@@ -36,6 +36,7 @@ export interface Mission {
   xp_reward: number;
   active: boolean;
   attachments?: string[] | null;
+  target_child_id?: string | null;
 }
 
 export interface Submission {
