@@ -29,9 +29,13 @@ export interface Mission {
   icon?: string;
   type: 'daily' | 'special';
   deadline?: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  recurring_days?: string[] | null;
   coin_reward: number;
   xp_reward: number;
   active: boolean;
+  attachments?: string[] | null;
 }
 
 export interface Submission {

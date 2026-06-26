@@ -20,7 +20,7 @@ export async function GET() {
 // POST: Create mission
 export async function POST(request: NextRequest) {
   try {
-    const { title, icon, type, deadline, coin_reward, xp_reward } = await request.json();
+    const { title, icon, type, deadline, start_date, end_date, recurring_days, attachments, coin_reward, xp_reward } = await request.json();
 
     if (!title) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 });
@@ -31,6 +31,10 @@ export async function POST(request: NextRequest) {
       icon: icon || '📋',
       type: type || 'daily',
       deadline: deadline || null,
+      start_date: start_date || null,
+      end_date: end_date || null,
+      recurring_days: recurring_days || null,
+      attachments: attachments || null,
       coin_reward: coin_reward || 10,
       xp_reward: xp_reward || 10,
       created_by: 'parent-id-here', // Will be set from auth in real implementation

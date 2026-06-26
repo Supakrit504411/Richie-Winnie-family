@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest } from '@/lib/types';
+import EvidenceUploader from '@/components/EvidenceUploader';
 
 export default function ParentDashboard() {
   const { user, logout, loading } = useAuth();
@@ -211,6 +212,7 @@ function ReviewTab({
   const [showReject, setShowReject] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [penalty, setPenalty] = useState(0);
+  const [applyPenalty, setApplyPenalty] = useState(true);
   const [wishPrices, setWishPrices] = useState<Record<string, number>>({});
 
   const childMap = Object.fromEntries(children.map(c => [c.id, c]));
@@ -284,7 +286,7 @@ function ReviewTab({
       return;
     }
 
-    if (penalty > 0) {
+    if (penalty > 0 && applyPenalty) {
       const { data: childUser } = await supabase
         .from('users')
         .select('coins')
@@ -454,16 +456,31 @@ function ReviewTab({
                   />
                 </div>
                 <div className="field mb-2">
-                  <label className="field-label">หักเหรียญ (ถ้ามีส่วน)</label>
-                  <input
-                    type="number"
-                    className="w-full p-3 rounded-xl border-2"
-                    style={{ borderColor: 'var(--line)' }}
-                    value={penalty}
-                    onChange={(e) => setPenalty(parseInt(e.target.value) || 0)}
-                    placeholder="0"
-                  />
+                  <label className="field-label">หักเหรียญ</label>
+                  <div className="flex items-center gap-2">
+                    <label className="checkbox-label" style={{ color: 'var(--body)', fontSize: '14px' }}>
+                      <input
+                        type="checkbox"
+                        checked={applyPenalty}
+                        onChange={(e) => setApplyPenalty(e.target.checked)}
+                      />
+                      <span>ตองการหักเหรียญ</span>
+                    </label>
+                  </div>
                 </div>
+                {applyPenalty && (
+                  <div className="field mb-2">
+                    <label className="field-label">จำนวนทหี่ ัก</label>
+                    <input
+                      type="number"
+                      className="w-full p-3 rounded-xl border-2"
+                      style={{ borderColor: 'var(--line)' }}
+                      value={penalty}
+                      onChange={(e) => setPenalty(parseInt(e.target.value) || 0)}
+                      placeholder="0"
+                    />
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button
                     className="btn btn-danger btn-sm flex-1"
@@ -523,6 +540,10 @@ function MissionsTab() {
   const [icon, setIcon] = useState('📋');
   const [type, setType] = useState<'daily' | 'special'>('daily');
   const [deadline, setDeadline] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [recurringDays, setRecurringDays] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const [coin, setCoin] = useState(10);
   const [xp, setXp] = useState(10);
 
@@ -544,7 +565,16 @@ function MissionsTab() {
     if (editingId) {
       const { error } = await supabase
         .from('missions')
-        .update({ title, icon, type, deadline: deadline || null, coin_reward: coin, xp_reward: xp })
+        .update({
+          title, icon, type,
+          deadline: deadline || null,
+          start_date: startDate || null,
+          end_date: endDate || null,
+          recurring_days: recurringDays.length > 0 ? recurringDays : null,
+          coin_reward: coin,
+          xp_reward: xp,
+          attachments: attachments.length > 0 ? attachments : null,
+        })
         .eq('id', editingId);
       if (error) alert('Error: ' + error.message);
     } else {
@@ -553,9 +583,13 @@ function MissionsTab() {
         icon,
         type,
         deadline: deadline || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        recurring_days: recurringDays.length > 0 ? recurringDays : null,
         coin_reward: coin,
         xp_reward: xp,
         created_by: user!.id,
+        attachments: attachments.length > 0 ? attachments : null,
       });
       if (error) alert('Error: ' + error.message);
     }
@@ -566,6 +600,10 @@ function MissionsTab() {
     setIcon('📋');
     setType('daily');
     setDeadline('');
+    setStartDate('');
+    setEndDate('');
+    setRecurringDays([]);
+    setAttachments([]);
     setCoin(10);
     setXp(10);
     fetchMissions();
@@ -588,6 +626,9 @@ function MissionsTab() {
     setIcon(mission.icon || '📋');
     setType(mission.type);
     setDeadline(mission.deadline || '');
+    setStartDate(mission.start_date || '');
+    setEndDate(mission.end_date || '');
+    setRecurringDays(mission.recurring_days || []);
     setCoin(mission.coin_reward);
     setXp(mission.xp_reward);
     setShowForm(true);
@@ -651,6 +692,59 @@ function MissionsTab() {
               style={{ borderColor: 'var(--line)' }}
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label">📅 วนทำซ้ำ (Recurring - ไม่จำเป็น)</label>
+            <div className="flex flex-wrap gap-2">
+              {['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'].map((day, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`btn btn-sm ${recurringDays.includes(['monday','tuesday','wednesday','thursday','friday','saturday','sunday'][idx]) ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => {
+                    const days = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+                    if (recurringDays.includes(days[idx])) {
+                      setRecurringDays(recurringDays.filter(d => d !== days[idx]));
+                    } else {
+                      setRecurringDays([...recurringDays, days[idx]]);
+                    }
+                  }}
+                >
+                  {day}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label className="field-label">📆 วนเริ่ มทำ (ไม่จำเป็น)</label>
+            <input
+              type="date"
+              className="w-full p-3 rounded-xl border-2"
+              style={{ borderColor: 'var(--line)' }}
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label">📆 วนหมดกจิ (ไม่จำเป็น)</label>
+            <input
+              type="date"
+              className="w-full p-3 rounded-xl border-2"
+              style={{ borderColor: 'var(--line)' }}
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label">📎 แนบภาพ/ไฟล์ (ไม่จำเป็น)</label>
+            <EvidenceUploader
+              onUpload={(urls) => setAttachments(urls)}
+              existingUrls={attachments}
             />
           </div>
 
@@ -874,6 +968,13 @@ function SettingsTab({ parent }: { parent: User }) {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [familyName, setFamilyName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showCode, setShowCode] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('notifications_enabled') === 'true';
+    }
+    return true;
+  });
 
   useEffect(() => {
     if (!parent.id) return;
@@ -895,6 +996,22 @@ function SettingsTab({ parent }: { parent: User }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function toggleNotifications() {
+    const newValue = !notificationsEnabled;
+    setNotificationsEnabled(newValue);
+    localStorage.setItem('notifications_enabled', String(newValue));
+    
+    if (newValue && 'Notification' in window) {
+      Notification.requestPermission().then(perm => {
+        if (perm !== 'granted') {
+          alert('ไม่ได้รับอนุญาตให้ส่งการแจ้งเตือน กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์');
+          setNotificationsEnabled(false);
+          localStorage.setItem('notifications_enabled', 'false');
+        }
+      });
+    }
+  }
+
   return (
     <div>
       <h3 className="text-lg font-bold mb-3">⚙️ อื่นๆ</h3>
@@ -906,9 +1023,12 @@ function SettingsTab({ parent }: { parent: User }) {
           <>
             <p className="text-sm mb-2">รหัสเชิญให้พ่อ/แม่อีกคนเข้าร่วม:</p>
             <div className="flex items-center gap-2">
-              <code className="text-2xl font-bold tracking-widest px-4 py-2 rounded-xl" style={{ background: 'var(--cream)' }}>
-                {inviteCode}
+              <code className="text-2xl font-bold tracking-widest px-4 py-2 rounded-xl" style={{ background: 'var(--cream)', filter: showCode ? 'none' : 'blur(8px)', userSelect: showCode ? 'auto' : 'none', transition: 'filter 0.3s ease' }}>
+                {showCode ? inviteCode : '••••••'}
               </code>
+              <button className="btn btn-sm btn-primary" onClick={() => setShowCode(!showCode)}>
+                {showCode ? '🙈 บด' : '👁 เผย'}
+              </button>
               <button className="btn btn-sm btn-primary" onClick={copyCode}>
                 {copied ? '✓ คัดลอกแล้ว' : 'คัดลอก'}
               </button>
@@ -935,6 +1055,24 @@ function SettingsTab({ parent }: { parent: User }) {
         <h4 className="font-bold mb-2">ℹ️ เกี่ยวกับแอป</h4>
         <p className="muted text-sm">Family Quest v2.0</p>
         <p className="muted text-sm">ครอบครัว • Wishlist • พี่น้องแข่งขัน</p>
+      </div>
+
+      <div className="card mt-3">
+        <h4 className="font-bold mb-2">🔔 การแจ้งเตือน</h4>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm">ส่งการแจ้งเตือนใน App</p>
+            <p className="muted text-sm">เตือนเมื่ อภารกิตใกลหมดเวลา</p>
+          </div>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={notificationsEnabled}
+              onChange={toggleNotifications}
+            />
+            <span className="slider"></span>
+          </label>
+        </div>
       </div>
     </div>
   );

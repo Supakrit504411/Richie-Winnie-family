@@ -44,23 +44,43 @@ export default function EvidenceUploader({ onUpload, existingUrls = [] }: Eviden
     setUploading(true);
 
     try {
-      // For now, we're using base64 URLs for preview
-      // In production, you would upload each file to Supabase Storage
-      // and get back the public URLs
-      
-      // Example upload to Supabase Storage:
-      // for (const url of urls) {
-      //   const response = await fetch(url);
-      //   const blob = await response.blob();
-      //   const { data } = await supabase.storage
-      //     .from('submission-evidence')
-      //     .upload(fileName, blob);
-      // }
+      const uploadedUrls: string[] = [];
 
-      // For demo, just pass the base64 URLs
-      onUpload(urls);
+      for (const url of urls) {
+        // Skip if already a public URL (from existing or previous upload)
+        if (url.startsWith('http') && url.includes('supabase')) {
+          uploadedUrls.push(url);
+          continue;
+        }
+
+        // Convert base64 to blob
+        const response = await fetch(url);
+        const blob = await response.blob();
+        
+        // Create File object
+        const file = new File([blob], `image_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+        // Upload to API
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('userId', 'evidence');
+
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const uploadData = await uploadRes.json();
+        if (uploadRes.ok && uploadData.url) {
+          uploadedUrls.push(uploadData.url);
+        }
+      }
+
+      onUpload(uploadedUrls);
+      setUrls([]);
     } catch (error) {
       console.error('Upload error:', error);
+      alert('อัปโหลดไม่สำเร็จ กรุณาลองใหม่');
     } finally {
       setUploading(false);
     }

@@ -76,6 +76,59 @@ export default function ChildDashboard() {
     if (subsData) setSubmissions(subsData);
   }
 
+  // Check for upcoming deadlines and show notifications
+  useEffect(() => {
+    if (!missions || missions.length === 0) return;
+
+    const notificationsEnabled = localStorage.getItem('notifications_enabled') === 'true';
+    if (!notificationsEnabled) return;
+
+    // Request notification permission on first load
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const checkDeadlines = () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+
+      missions.forEach(mission => {
+        if (!mission.deadline) return;
+
+        // Skip if already submitted today
+        const today = now.toISOString().split('T')[0];
+        const hasSubmitted = submissions.some(
+          s => s.mission_id === mission.id && s.submission_date === today
+        );
+        if (hasSubmitted) return;
+
+        // Check if deadline is within 15 minutes
+        const [deadlineHour, deadlineMinute] = mission.deadline.split(':').map(Number);
+        const diffMinutes = (deadlineHour - currentHour) * 60 + (deadlineMinute - currentMinute);
+
+        if (diffMinutes === 15 || diffMinutes === 5) {
+          // Show notification
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('🔔 Family Quest - เตอนใกล้หมดเวลา!', {
+              body: `"${mission.title}" หมดเวลาอีก ${diffMinutes} นาที`,
+              icon: '📋',
+              tag: `deadline-${mission.id}-${today}`,
+            });
+          }
+        }
+      });
+    };
+
+    // Check immediately
+    checkDeadlines();
+
+    // Check every 30 seconds
+    const interval = setInterval(checkDeadlines, 30000);
+
+    return () => clearInterval(interval);
+  }, [missions, submissions]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -278,10 +331,39 @@ function QuestsTab({
     if (!childId) return;
 
     try {
-      // Upload evidence if any
+      // Upload evidence to Supabase Storage
       let urls: string[] = [];
       if (evidenceUrls.length > 0) {
-        urls = evidenceUrls;
+        const uploadedUrls: string[] = [];
+
+        for (const url of evidenceUrls) {
+          // Skip if already a public URL
+          if (url.startsWith('http') && url.includes('supabase')) {
+            uploadedUrls.push(url);
+            continue;
+          }
+
+          // Convert base64 to blob and upload
+          const response = await fetch(url);
+          const blob = await response.blob();
+          const file = new File([blob], `evidence_${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('userId', childId);
+
+          const uploadRes = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const uploadData = await uploadRes.json();
+          if (uploadRes.ok && uploadData.url) {
+            uploadedUrls.push(uploadData.url);
+          }
+        }
+
+        urls = uploadedUrls;
       }
 
       const { error } = await supabase.from('submissions').insert({
