@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { fetchWithAuth } from '@/lib/api-client';
 import { showAlert } from '@/components/SweetAlert';
+import StorageImage from '@/components/StorageImage';
 
 interface ProfileAvatarEditorProps {
   userId: string;
@@ -22,12 +23,23 @@ export default function ProfileAvatarEditor({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(avatarUrl || '');
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPreview(avatarUrl || '');
+  }, [avatarUrl]);
 
   const dimension = size === 'sm' ? 64 : 96;
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) setLocalPreview(event.target.result as string);
+    };
+    reader.readAsDataURL(file);
 
     setUploading(true);
     showAlert({ title: 'กำลังอัปโหลดรูป...', icon: 'loading', showConfirmButton: false });
@@ -54,6 +66,7 @@ export default function ProfileAvatarEditor({
       }
 
       setPreview(uploadData.url);
+      setLocalPreview(null);
       onUpdated?.(uploadData.url);
       showAlert({
         title: 'อัปเดตรูปโปรไฟล์แล้ว',
@@ -87,8 +100,15 @@ export default function ProfileAvatarEditor({
         onClick={() => inputRef.current?.click()}
         disabled={uploading}
       >
-        {preview ? (
-          <img src={preview} alt="Profile" className="w-full h-full object-cover" />
+        {localPreview ? (
+          <img src={localPreview} alt="Profile" className="w-full h-full object-cover" />
+        ) : preview ? (
+          <StorageImage
+            src={preview}
+            alt="Profile"
+            className="w-full h-full object-cover"
+            fallback={<span style={{ fontSize: size === 'sm' ? 32 : 48 }}>{emoji}</span>}
+          />
         ) : (
           <span style={{ fontSize: size === 'sm' ? 32 : 48 }}>{emoji}</span>
         )}

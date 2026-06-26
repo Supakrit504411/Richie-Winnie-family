@@ -33,6 +33,7 @@ export default function AdminDashboard() {
   const [families, setFamilies] = useState<AdminFamily[]>([]);
   const [orphanUsers, setOrphanUsers] = useState<AdminMember[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [revealedCodes, setRevealedCodes] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (loading) return;
@@ -141,8 +142,32 @@ export default function AdminDashboard() {
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <h2 className="text-lg font-bold">{family.name}</h2>
-                  <p className="muted text-sm">
-                    รหัสเชิญ: {family.invite_code} • สมาชิก {family.members.length} คน
+                  <p className="muted text-sm flex items-center gap-2 flex-wrap">
+                    <span>รหัสเชิญ:</span>
+                    <code
+                      className="font-bold tracking-widest px-2 py-1 rounded"
+                      style={{
+                        background: 'var(--cream)',
+                        filter: revealedCodes[family.id] ? 'none' : 'blur(8px)',
+                        userSelect: revealedCodes[family.id] ? 'auto' : 'none',
+                        transition: 'filter 0.3s ease',
+                      }}
+                    >
+                      {revealedCodes[family.id] ? family.invite_code : '••••••'}
+                    </code>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() =>
+                        setRevealedCodes((prev) => ({
+                          ...prev,
+                          [family.id]: !prev[family.id],
+                        }))
+                      }
+                    >
+                      {revealedCodes[family.id] ? '🙈 บด' : '👁 เผย'}
+                    </button>
+                    <span>• สมาชิก {family.members.length} คน</span>
                   </p>
                   <p className="muted text-sm">
                     สมัคร: {new Date(family.created_at).toLocaleDateString('th-TH')}

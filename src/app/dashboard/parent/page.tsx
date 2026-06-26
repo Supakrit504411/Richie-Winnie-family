@@ -6,15 +6,16 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { fetchWithAuth } from '@/lib/api-client';
-import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest } from '@/lib/types';
+import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest, CoinHistory } from '@/lib/types';
 import EvidenceUploader from '@/components/EvidenceUploader';
 import ProfileAvatarEditor from '@/components/ProfileAvatarEditor';
+import StorageImage from '@/components/StorageImage';
 import { showAlert, hideAlert } from '@/components/SweetAlert';
 
 export default function ParentDashboard() {
   const { user, logout, loading } = useAuth();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'review' | 'missions' | 'shop' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'review' | 'missions' | 'shop' | 'history' | 'settings'>('overview');
   const [parent, setParent] = useState<User | null>(null);
   const [children, setChildren] = useState<User[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -45,6 +46,13 @@ export default function ParentDashboard() {
   }
 
   async function fetchParentData(profile: User) {
+    const { data: freshParent } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', profile.id)
+      .single();
+    if (freshParent) setParent(freshParent);
+
     const membersRes = await fetchWithAuth('/api/family/members?role=child');
     const membersData = await membersRes.json();
     const childrenData = membersRes.ok ? (membersData.members as User[]) : [];
@@ -61,7 +69,7 @@ export default function ParentDashboard() {
 
       const { data: redemptionsData } = await supabase
         .from('redemptions')
-        .select('*')
+        .select('*, shop_items(name, icon, price)')
         .in('child_id', childIds)
         .order('created_at', { ascending: false });
       if (redemptionsData) setRedemptions(redemptionsData);
@@ -96,6 +104,7 @@ export default function ParentDashboard() {
     { id: 'review' as const, label: 'ตรวจ', icon: '✅' },
     { id: 'missions' as const, label: 'ภารกิจ', icon: '📋' },
     { id: 'shop' as const, label: 'ร้าน', icon: '🛒' },
+    { id: 'history' as const, label: 'ประวัติ', icon: '📜' },
     { id: 'settings' as const, label: 'อื่นๆ', icon: '⚙️' },
   ];
 
@@ -104,9 +113,22 @@ export default function ParentDashboard() {
       {/* Header */}
       <div className="p-4 card mb-4">
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-xl font-bold">ภาพรวม</h2>
-            <p className="muted">{parentProfile.username}</p>
+          <div className="flex items-center gap-3">
+            {parentProfile.avatar_url ? (
+              <StorageImage
+                src={parentProfile.avatar_url}
+                alt="Profile"
+                className="rounded-full object-cover"
+                style={{ width: 48, height: 48 }}
+                fallback={<span className="text-3xl">{parentProfile.avatar || '👨'}</span>}
+              />
+            ) : (
+              <span className="text-3xl">{parentProfile.avatar || '👨'}</span>
+            )}
+            <div>
+              <h2 className="text-xl font-bold">ภาพรวม</h2>
+              <p className="muted">{parentProfile.username}</p>
+            </div>
           </div>
           <button onClick={handleLogout} className="btn btn-sm btn-ghost">
             ออก
@@ -153,6 +175,9 @@ export default function ParentDashboard() {
         {activeTab === 'shop' && (
           <ShopTab />
         )}
+        {activeTab === 'history' && (
+          <ParentHistoryTab children={children} submissions={submissions} />
+        )}
         {activeTab === 'settings' && (
           <SettingsTab parent={parentProfile} children={children} />
         )}
@@ -186,7 +211,17 @@ function OverviewTab({ children }: { children: User[] }) {
           {children.map(child => (
             <div key={child.id} className="card">
               <div className="flex items-center gap-3">
-                <span className="text-4xl">{child.avatar || '🐯'}</span>
+                {child.avatar_url ? (
+                  <StorageImage
+                    src={child.avatar_url}
+                    alt={child.username}
+                    className="rounded-full object-cover"
+                    style={{ width: 48, height: 48 }}
+                    fallback={<span className="text-4xl">{child.avatar || '🐯'}</span>}
+                  />
+                ) : (
+                  <span className="text-4xl">{child.avatar || '🐯'}</span>
+                )}
                 <div className="flex-1">
                   <p className="font-bold">{child.username}</p>
                   <div className="flex gap-3 text-sm">
@@ -224,6 +259,44 @@ function ReviewTab({
 
   const childMap = Object.fromEntries(children.map(c => [c.id, c]));
   const [missionMap, setMissionMap] = useState<Record<string, any>>({});
+  const [shopItemMap, setShopItemMap] = useState<Record<string, ShopItem>>({});
+
+  useEffect(() => {
+    async function loadShopItems() {
+      const itemIds = [...new Set(redemptions.map((r) => r.item_id))];
+      if (itemIds.length === 0) return;
+
+      const embedded = redemptions
+        .filter((r) => r.shop_items?.name)
+        .reduce<Record<string, ShopItem>>((acc, r) => {
+          acc[r.item_id] = {
+            id: r.item_id,
+            name: r.shop_items!.name,
+            icon: r.shop_items!.icon,
+            price: r.shop_items!.price ?? 0,
+          } as ShopItem;
+          return acc;
+        }, {});
+
+      const missingIds = itemIds.filter((id) => !embedded[id]);
+      if (missingIds.length === 0) {
+        setShopItemMap(embedded);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('shop_items')
+        .select('*')
+        .in('id', missingIds);
+
+      const map: Record<string, ShopItem> = { ...embedded };
+      (data ?? []).forEach((item: ShopItem) => {
+        map[item.id] = item;
+      });
+      setShopItemMap(map);
+    }
+    loadShopItems();
+  }, [redemptions]);
 
   useEffect(() => {
     async function loadMissions() {
@@ -523,17 +596,29 @@ function ReviewTab({
 
       {/* Redemptions */}
       <h3 className="text-lg font-bold mb-3 mt-6">🎁 การแลกของรางวัล</h3>
-      {redemptions.filter(r => r.status === 'pending').map(redemption => (
+      {redemptions.filter(r => r.status === 'pending').length === 0 ? (
+        <p className="muted text-center py-4">ไม่มีคำขอแลกของรางวัล</p>
+      ) : (
+        redemptions.filter(r => r.status === 'pending').map(redemption => {
+          const child = childMap[redemption.child_id];
+          const item = shopItemMap[redemption.item_id] || redemption.shop_items;
+          return (
         <div key={redemption.id} className="card mb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-bold">รอจัดให้</p>
-              <p className="muted text-sm">
-                {new Date(redemption.created_at).toLocaleDateString('th-TH')}
-              </p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1">
+              <span className="text-3xl">{item?.icon || '🎁'}</span>
+              <div>
+                <p className="font-bold">{item?.name || 'ของรางวัล'}</p>
+                <p className="muted text-sm">
+                  {child ? `${child.avatar} ${child.username}` : 'ลูก'} • {item?.price ?? '?'} 🪙
+                </p>
+                <p className="muted text-sm">
+                  ขอเมื่อ {new Date(redemption.created_at).toLocaleDateString('th-TH')}
+                </p>
+              </div>
             </div>
             <button
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary btn-sm shrink-0"
               onClick={async () => {
                 await supabase.from('redemptions').update({
                   status: 'fulfilled',
@@ -546,7 +631,9 @@ function ReviewTab({
             </button>
           </div>
         </div>
-      ))}
+          );
+        })
+      )}
     </div>
   );
 }
@@ -871,6 +958,165 @@ function MissionsTab({ children }: { children: User[] }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ParentHistoryTab({
+  children,
+  submissions,
+}: {
+  children: User[];
+  submissions: Submission[];
+}) {
+  const [selectedChildId, setSelectedChildId] = useState('');
+  const [coinHistory, setCoinHistory] = useState<CoinHistory[]>([]);
+  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
+  const [missionMap, setMissionMap] = useState<Record<string, Mission>>({});
+
+  useEffect(() => {
+    if (children.length > 0 && !selectedChildId) {
+      setSelectedChildId(children[0].id);
+    }
+  }, [children, selectedChildId]);
+
+  useEffect(() => {
+    if (!selectedChildId) return;
+
+    async function loadHistory() {
+      const [{ data: coins }, { data: redeems }] = await Promise.all([
+        supabase
+          .from('coin_history')
+          .select('*')
+          .eq('child_id', selectedChildId)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('redemptions')
+          .select('*, shop_items(name, icon, price)')
+          .eq('child_id', selectedChildId)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (coins) setCoinHistory(coins);
+      if (redeems) setRedemptions(redeems as Redemption[]);
+
+      const childSubs = submissions.filter((s) => s.child_id === selectedChildId);
+      const missionIds = [...new Set(childSubs.map((s) => s.mission_id))];
+      if (missionIds.length === 0) {
+        setMissionMap({});
+        return;
+      }
+
+      const { data: missions } = await supabase
+        .from('missions')
+        .select('*')
+        .in('id', missionIds);
+
+      const map: Record<string, Mission> = {};
+      (missions ?? []).forEach((m) => {
+        map[m.id] = m;
+      });
+      setMissionMap(map);
+    }
+
+    loadHistory();
+  }, [selectedChildId, submissions]);
+
+  if (children.length === 0) {
+    return <p className="muted text-center py-8">ยังไม่มีเด็กในครอบครัว</p>;
+  }
+
+  const childSubs = submissions
+    .filter((s) => s.child_id === selectedChildId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const statusLabel: Record<Submission['status'], string> = {
+    pending: '⏳ รอตรวจ',
+    approved: '✅ ผ่าน',
+    rejected: '❌ ไม่ผ่าน',
+  };
+
+  return (
+    <div>
+      <div className="field mb-4">
+        <label className="field-label">เลือกลูก</label>
+        <select
+          className="w-full p-3 rounded-xl border-2"
+          style={{ borderColor: 'var(--line)' }}
+          value={selectedChildId}
+          onChange={(e) => setSelectedChildId(e.target.value)}
+        >
+          {children.map((child) => (
+            <option key={child.id} value={child.id}>
+              {child.avatar} {child.username}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <h3 className="text-lg font-bold mb-3">📋 ประวัติภารกิจ</h3>
+      {childSubs.length === 0 ? (
+        <p className="muted text-center py-4 mb-6">ยังไม่มีการส่งภารกิจ</p>
+      ) : (
+        <div className="card mb-6">
+          {childSubs.map((sub) => (
+            <div key={sub.id} className="flex justify-between items-start py-3 border-b last:border-b-0" style={{ borderColor: 'var(--line)' }}>
+              <div>
+                <p className="font-bold">
+                  {missionMap[sub.mission_id]?.icon || '📋'}{' '}
+                  {missionMap[sub.mission_id]?.title || 'ภารกิจ'}
+                </p>
+                <p className="muted text-sm">
+                  {new Date(sub.submission_date).toLocaleDateString('th-TH')}
+                  {sub.reviewed_at && ` • ตรวจ ${new Date(sub.reviewed_at).toLocaleDateString('th-TH')}`}
+                </p>
+              </div>
+              <span className="pill text-sm">{statusLabel[sub.status]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 className="text-lg font-bold mb-3">📜 ประวัติเหรียญ</h3>
+      {coinHistory.length === 0 ? (
+        <p className="muted text-center py-4 mb-6">ยังไม่มีประวัติเหรียญ</p>
+      ) : (
+        <div className="card mb-6">
+          {coinHistory.map((h) => (
+            <div key={h.id} className="flex justify-between items-center py-2">
+              <div>
+                <p className="font-bold">{h.reason}</p>
+                <p className="muted text-sm">{new Date(h.created_at).toLocaleDateString('th-TH')}</p>
+              </div>
+              <span className={`font-bold ${h.delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {h.delta > 0 ? '+' : ''}{h.delta} 🪙
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 className="text-lg font-bold mb-3">🎁 การแลกของรางวัล</h3>
+      {redemptions.length === 0 ? (
+        <p className="muted text-center py-4">ยังไม่มีการแลกของ</p>
+      ) : (
+        <div className="card">
+          {redemptions.map((r) => (
+            <div key={r.id} className="flex justify-between items-center py-2">
+              <div>
+                <p className="font-bold">
+                  {r.shop_items?.icon || '🎁'} {r.shop_items?.name || 'ของรางวัล'}
+                </p>
+                <p className="muted text-sm">{new Date(r.created_at).toLocaleDateString('th-TH')}</p>
+              </div>
+              <span className={`pill ${r.status === 'fulfilled' ? 'st-approved' : 'st-pending'}`}>
+                {r.status === 'fulfilled' ? '✅ จัดให้แล้ว' : '⏳ รอจัดให้'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

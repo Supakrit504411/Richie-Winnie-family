@@ -10,6 +10,7 @@ import { CHAR_LEVELS, HOUSE_LEVELS, CAR_LEVELS, charLevelInfo, fmtCoin } from '@
 import { submissionStatusEmoji } from '@/lib/family';
 import { showAlert, hideAlert } from '@/components/SweetAlert';
 import ProfileAvatarEditor from '@/components/ProfileAvatarEditor';
+import StorageImage from '@/components/StorageImage';
 
 export default function ChildDashboard() {
   const { user, logout, loading } = useAuth();
@@ -181,11 +182,12 @@ export default function ChildDashboard() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             {childProfile.avatar_url ? (
-              <img
+              <StorageImage
                 src={childProfile.avatar_url}
                 alt="Profile"
                 className="rounded-full object-cover"
                 style={{ width: 56, height: 56 }}
+                fallback={<span className="text-4xl">{childProfile.avatar || '🐯'}</span>}
               />
             ) : (
               <span className="text-4xl">{childProfile.avatar || '🐯'}</span>
@@ -790,11 +792,14 @@ function ShopTab({ childId }: { childId: string }) {
 function HistoryTab({ childId }: { childId: string }) {
   const [history, setHistory] = useState<any[]>([]);
   const [redemptions, setRedemptions] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [missionMap, setMissionMap] = useState<Record<string, Mission>>({});
 
   useEffect(() => {
     fetchHistory();
     fetchRedemptions();
-  }, []);
+    fetchSubmissions();
+  }, [childId]);
 
   async function fetchHistory() {
     const { data } = await supabase
@@ -815,8 +820,60 @@ function HistoryTab({ childId }: { childId: string }) {
     if (data) setRedemptions(data);
   }
 
+  async function fetchSubmissions() {
+    const { data } = await supabase
+      .from('submissions')
+      .select('*')
+      .eq('child_id', childId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (!data) return;
+    setSubmissions(data);
+
+    const missionIds = [...new Set(data.map((s) => s.mission_id))];
+    if (missionIds.length === 0) return;
+
+    const { data: missions } = await supabase
+      .from('missions')
+      .select('*')
+      .in('id', missionIds);
+    if (missions) {
+      const map: Record<string, Mission> = {};
+      missions.forEach((m) => { map[m.id] = m; });
+      setMissionMap(map);
+    }
+  }
+
+  const statusLabel: Record<string, string> = {
+    pending: '⏳ รอตรวจ',
+    approved: '✅ ผ่าน',
+    rejected: '❌ ไม่ผ่าน',
+  };
+
   return (
     <div>
+      <h3 className="text-lg font-bold mb-3">📋 ประวัติภารกิจ</h3>
+      {submissions.length === 0 ? (
+        <p className="muted text-center py-4 mb-6">ยังไม่มีการส่งภารกิจ</p>
+      ) : (
+        <div className="card mb-6">
+          {submissions.map((sub) => (
+            <div key={sub.id} className="flex justify-between items-start py-2">
+              <div>
+                <p className="font-bold">
+                  {missionMap[sub.mission_id]?.icon || '📋'}{' '}
+                  {missionMap[sub.mission_id]?.title || 'ภารกิจ'}
+                </p>
+                <p className="muted text-sm">
+                  {new Date(sub.submission_date).toLocaleDateString('th-TH')}
+                </p>
+              </div>
+              <span className="pill text-sm">{statusLabel[sub.status] || sub.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <h3 className="text-lg font-bold mb-3">📜 ประวัติเหรียญ</h3>
       {history.length === 0 ? (
         <p className="muted text-center py-8">ยังไม่มีประวัติ</p>

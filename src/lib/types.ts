@@ -74,6 +74,7 @@ export interface Redemption {
   status: 'pending' | 'fulfilled';
   fulfilled_at?: string;
   fulfilled_by?: string;
+  shop_items?: Pick<ShopItem, 'name' | 'icon' | 'price'> | null;
 }
 
 export interface CoinHistory {
