@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { isRegistrationOpen } from '@/lib/registration';
 
 export async function GET() {
+  if (!isRegistrationOpen()) {
+    return NextResponse.json({ parents: [] });
+  }
+
   try {
     const { data, error } = await getSupabaseServer()
       .from('users')

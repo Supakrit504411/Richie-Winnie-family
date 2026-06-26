@@ -4,8 +4,10 @@ export interface User {
   username: string;
   role: 'child' | 'parent';
   avatar?: string;
+  avatar_url?: string | null;
   parent_id?: string;
   family_id?: string;
+  is_active?: boolean;
   coins: number;
   xp: number;
   house_level: number;
@@ -19,6 +21,7 @@ export interface Family {
   created_at: string;
   name: string;
   invite_code: string;
+  is_active?: boolean;
 }
 
 export interface Mission {

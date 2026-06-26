@@ -15,7 +15,8 @@ interface AuthContextType {
     avatar?: string,
     parentId?: string,
     parentMode?: 'create' | 'join',
-    familyInviteCode?: string
+    familyInviteCode?: string,
+    registrationSecret?: string
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
@@ -36,7 +37,12 @@ async function fetchProfile(userId: string): Promise<User | null> {
     });
     clearTimeout(timeout);
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status === 403) {
+        await supabase.auth.signOut();
+      }
+      return null;
+    }
     const data = await res.json();
     return (data.profile as User) ?? null;
   } catch {
@@ -119,7 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     avatar?: string,
     parentId?: string,
     parentMode?: 'create' | 'join',
-    familyInviteCode?: string
+    familyInviteCode?: string,
+    registrationSecret?: string
   ) {
     try {
       const res = await fetch('/api/auth/register', {
@@ -133,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           parent_id: parentId,
           parent_mode: parentMode,
           family_invite_code: familyInviteCode,
+          registration_secret: registrationSecret,
         }),
       });
       const data = await res.json();

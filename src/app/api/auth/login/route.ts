@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer, authEmailForUserId } from '@/lib/supabase-server';
+import { assertUserCanAccessApp } from '@/lib/admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +50,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         error: fullProfileError?.message || 'ไม่พบโปรไฟล์ในฐานข้อมูล — ลองสมัครใหม่',
       }, { status: 500 });
+    }
+
+    const access = await assertUserCanAccessApp(profile.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     return NextResponse.json({

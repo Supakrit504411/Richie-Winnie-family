@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { fetchWithAuth } from '@/lib/api-client';
 import { User, Mission, Submission, ShopItem, Redemption, WishlistRequest } from '@/lib/types';
 import EvidenceUploader from '@/components/EvidenceUploader';
+import ProfileAvatarEditor from '@/components/ProfileAvatarEditor';
 import { showAlert, hideAlert } from '@/components/SweetAlert';
 
 export default function ParentDashboard() {
@@ -152,7 +154,7 @@ export default function ParentDashboard() {
           <ShopTab />
         )}
         {activeTab === 'settings' && (
-          <SettingsTab parent={parentProfile} />
+          <SettingsTab parent={parentProfile} children={children} />
         )}
       </div>
 
@@ -241,107 +243,86 @@ function ReviewTab({
   }, [submissions]);
 
   async function handleApprove(subId: string) {
-    const sub = submissions.find(s => s.id === subId);
-    if (!sub || !user) return;
+    if (!user) return;
 
-    const { data: mission } = await supabase
-      .from('missions')
-      .select('*')
-      .eq('id', sub.mission_id)
-      .single();
+    showAlert({ title: 'กำลังอนุมัติ...', icon: 'loading', showConfirmButton: false });
 
-    if (!mission) return;
+    try {
+      const res = await fetchWithAuth(`/api/submissions/${subId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      });
+      const data = await res.json();
 
-    const { data: childUser } = await supabase
-      .from('users')
-      .select('coins, xp')
-      .eq('id', sub.child_id)
-      .single();
+      if (!res.ok) {
+        hideAlert();
+        showAlert({ title: 'อนุมัติไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
+        return;
+      }
 
-    if (!childUser) return;
-
-    const { error } = await supabase.from('submissions').update({
-      status: 'approved',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.id,
-    }).eq('id', subId);
-
-    if (error) {
-      showAlert({ title: 'เกิดข้อผิดพลาด', text: error.message, icon: 'error' });
-      return;
+      hideAlert();
+      showAlert({
+        title: 'อนุมัติแล้ว!',
+        text: `ให้รางวัล +${data.coins_awarded} 🪙`,
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: unknown) {
+      hideAlert();
+      showAlert({
+        title: 'อนุมัติไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
     }
-
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({
-        coins: childUser.coins + mission.coin_reward,
-        xp: childUser.xp + mission.xp_reward,
-      })
-      .eq('id', sub.child_id);
-
-    if (updateError) {
-      showAlert({ title: 'เกิดข้อผิดพลาด', text: 'อัปเดตคะแนนไม่สำเร็จ', icon: 'error' });
-      return;
-    }
-
-    await supabase.from('coin_history').insert({
-      child_id: sub.child_id,
-      delta: mission.coin_reward,
-      reason: `ภารกิจสำเร็จ: ${mission.title}`,
-      kind: 'mission',
-    });
-
-    showAlert({
-      title: 'อนุมัติแล้ว!',
-      text: `ให้รางวัล +${mission.coin_reward} 🪙`,
-      icon: 'success',
-      timer: 1500,
-      showConfirmButton: false,
-    });
-    setTimeout(() => window.location.reload(), 1200);
   }
 
   async function handleReject(subId: string) {
-    const sub = submissions.find(s => s.id === subId);
-    if (!sub || !user) return;
+    if (!user) return;
 
-    const { error } = await supabase.from('submissions').update({
-      status: 'rejected',
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.id,
-    }).eq('id', subId);
+    showAlert({ title: 'กำลังบันทึก...', icon: 'loading', showConfirmButton: false });
 
-    if (error) {
-      showAlert({ title: 'เกิดข้อผิดพลาด', text: error.message, icon: 'error' });
-      return;
-    }
+    try {
+      const res = await fetchWithAuth(`/api/submissions/${subId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reject',
+          penalty: applyPenalty ? penalty : 0,
+          reject_reason: rejectReason,
+        }),
+      });
+      const data = await res.json();
 
-    if (penalty > 0 && applyPenalty) {
-      const { data: childUser } = await supabase
-        .from('users')
-        .select('coins')
-        .eq('id', sub.child_id)
-        .single();
-
-      if (childUser) {
-        await supabase.from('users').update({
-          coins: Math.max(0, childUser.coins - penalty),
-        }).eq('id', sub.child_id);
-
-        await supabase.from('coin_history').insert({
-          child_id: sub.child_id,
-          delta: -penalty,
-          reason: rejectReason || 'ไม่ผ่าน',
-          kind: 'penalty',
-        });
+      if (!res.ok) {
+        hideAlert();
+        showAlert({ title: 'บันทึกไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
+        return;
       }
-    }
 
-    setShowReject(null);
-    setRejectReason('');
-    setPenalty(0);
-    showAlert({ title: 'บันทึกแล้ว', text: 'ปฏิเสธภารกิจแล้ว', icon: 'success', timer: 1500, showConfirmButton: false });
-    setTimeout(() => window.location.reload(), 1200);
+      setShowReject(null);
+      setRejectReason('');
+      setPenalty(0);
+      hideAlert();
+      showAlert({
+        title: 'บันทึกแล้ว',
+        text: 'ปฏิเสธภารกิจแล้ว',
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: unknown) {
+      hideAlert();
+      showAlert({
+        title: 'บันทึกไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
+    }
   }
 
   async function handleWishApprove(wishId: string) {
@@ -1032,11 +1013,16 @@ function ShopTab() {
   );
 }
 
-function SettingsTab({ parent }: { parent: User }) {
+function SettingsTab({ parent, children }: { parent: User; children: User[] }) {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [familyName, setFamilyName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showCode, setShowCode] = useState(false);
+  const [selectedChildId, setSelectedChildId] = useState('');
+  const [newChildPassword, setNewChildPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [isAppAdmin, setIsAppAdmin] = useState(false);
+  const [parentAvatarUrl, setParentAvatarUrl] = useState(parent.avatar_url || '');
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('notifications_enabled') === 'true';
@@ -1055,6 +1041,11 @@ function SettingsTab({ parent }: { parent: User }) {
         }
       })
       .catch(() => {});
+
+    fetchWithAuth('/api/admin/me')
+      .then((res) => res.json())
+      .then((data) => setIsAppAdmin(Boolean(data.isAdmin)))
+      .catch(() => setIsAppAdmin(false));
   }, [parent.id]);
 
   function copyCode() {
@@ -1081,6 +1072,51 @@ function SettingsTab({ parent }: { parent: User }) {
           localStorage.setItem('notifications_enabled', 'false');
         }
       });
+    }
+  }
+
+  async function handleChangeChildPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedChildId || !newChildPassword) return;
+
+    setChangingPassword(true);
+    showAlert({ title: 'กำลังเปลี่ยนรหัส...', icon: 'loading', showConfirmButton: false });
+
+    try {
+      const res = await fetchWithAuth('/api/auth/change-child-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          child_id: selectedChildId,
+          new_password: newChildPassword,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        hideAlert();
+        showAlert({ title: 'เปลี่ยนรหัสไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
+        return;
+      }
+
+      setNewChildPassword('');
+      hideAlert();
+      showAlert({
+        title: 'เปลี่ยนรหัสแล้ว',
+        text: 'เด็กสามารถใช้รหัสใหม่เข้าสู่ระบบได้',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err: unknown) {
+      hideAlert();
+      showAlert({
+        title: 'เปลี่ยนรหัสไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
+    } finally {
+      setChangingPassword(false);
     }
   }
 
@@ -1111,16 +1147,79 @@ function SettingsTab({ parent }: { parent: User }) {
           <p className="muted text-sm">กำลังโหลดรหัสเชิญ... (ถ้าไม่ขึ้น ให้รัน SQL migration v2 ใน Supabase)</p>
         )}
       </div>
-      
+
+      <div className="card mb-3">
+        <h4 className="font-bold mb-3">👤 รูปโปรไฟล์ของคุณ</h4>
+        <ProfileAvatarEditor
+          userId={parent.id}
+          emoji={parent.avatar || '👨'}
+          avatarUrl={parentAvatarUrl}
+          onUpdated={setParentAvatarUrl}
+        />
+      </div>
+
+      <div className="card mb-3">
+        <h4 className="font-bold mb-2">🔐 เปลี่ยนรหัสผ่านเด็ก</h4>
+        <p className="muted text-sm mb-3">ตั้งรหัสใหม่ให้ลูกในครอบครัว (ใช้แทน PIN เดิม)</p>
+        {children.length === 0 ? (
+          <p className="muted text-sm">ยังไม่มีบัญชีเด็ก</p>
+        ) : (
+          <form onSubmit={handleChangeChildPassword}>
+            <div className="field">
+              <label className="field-label">เลือกลูก</label>
+              <select
+                className="w-full p-3 rounded-xl border-2"
+                style={{ borderColor: 'var(--line)' }}
+                value={selectedChildId}
+                onChange={(e) => setSelectedChildId(e.target.value)}
+                required
+              >
+                <option value="">-- เลือกลูก --</option>
+                {children.map((child) => (
+                  <option key={child.id} value={child.id}>
+                    {child.avatar} {child.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label className="field-label">รหัสผ่านใหม่</label>
+              <input
+                type="password"
+                className="w-full p-3 rounded-xl border-2"
+                style={{ borderColor: 'var(--line)' }}
+                value={newChildPassword}
+                onChange={(e) => setNewChildPassword(e.target.value)}
+                minLength={4}
+                required
+              />
+            </div>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={changingPassword}>
+              {changingPassword ? 'กำลังบันทึก...' : 'บันทึกรหัสใหม่'}
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div className="card mb-3">
+        <h4 className="font-bold mb-2">🛡️ ความปลอดภัย</h4>
+        <p className="muted text-sm mb-2">
+          ใครที่รู้ URL ก็สมัครได้ — ถ้าเจอครอบครัวที่ไม่รู้จัก ผู้ดูแลระบบสามารถปิดการใช้งานได้
+        </p>
+        {isAppAdmin && (
+          <Link href="/dashboard/admin" className="btn btn-primary btn-sm mb-3 inline-block">
+            🛡️ จัดการผู้ใช้ / เปิด-ปิดครอบครัว
+          </Link>
+        )}
+        <p className="muted text-sm">
+          ตั้ง <code>APP_ADMIN_USERNAMES=ชื่อผู้ใช้ของคุณ</code> ใน Vercel เพื่อเข้าหน้านี้
+        </p>
+      </div>
+
       <div className="card mb-3">
         <h4 className="font-bold mb-2">📥 Export/Import Data</h4>
         <p className="muted text-sm mb-3">ส่งออกหรือนำเข้าข้อมูลจากไฟล์ JSON</p>
         <button className="btn btn-ghost btn-sm">Export JSON</button>
-      </div>
-
-      <div className="card mb-3">
-        <h4 className="font-bold mb-2">🔐 เปลี่ยน PIN</h4>
-        <p className="muted text-sm mb-3">เปลี่ยนรหัสผ่านสำหรับเด็ก</p>
       </div>
 
       <div className="card">

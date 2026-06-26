@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer, authEmailForUserId } from '@/lib/supabase-server';
 import { generateInviteCode } from '@/lib/family';
+import { isRegistrationOpen, verifyRegistrationSecret } from '@/lib/registration';
 
 function dbMessage(error: { message?: string; code?: string } | null | undefined) {
   return error?.message || error?.code || 'unknown error';
@@ -44,7 +45,15 @@ export async function POST(request: NextRequest) {
       parent_id,
       parent_mode,
       family_invite_code,
+      registration_secret,
     } = await request.json();
+
+    if (!isRegistrationOpen()) {
+      return NextResponse.json(
+        { error: 'ปิดรับสมัครสมาชิกใหม่ชั่วคราว — ติดต่อผู้ดูแลครอบครัว' },
+        { status: 403 }
+      );
+    }
 
     const normalizedUsername = String(username).trim();
     const mode = parent_mode === 'join' ? 'join' : 'create';
@@ -59,6 +68,10 @@ export async function POST(request: NextRequest) {
 
     if (role === 'parent' && mode === 'join' && !family_invite_code) {
       return NextResponse.json({ error: 'กรุณาใส่รหัสเชิญครอบครัว' }, { status: 400 });
+    }
+
+    if (role === 'parent' && mode === 'create' && !verifyRegistrationSecret(registration_secret)) {
+      return NextResponse.json({ error: 'รหัสลับสำหรับสมัครไม่ถูกต้อง' }, { status: 403 });
     }
 
     const { data: existing } = await getSupabaseServer()
@@ -152,6 +165,7 @@ export async function POST(request: NextRequest) {
       house_level: 1,
       car_level: 1,
       streak: 0,
+      is_active: true,
     });
 
     if (profileError) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { assertUserCanAccessApp } from '@/lib/admin';
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,6 +33,11 @@ export async function GET(request: NextRequest) {
 
     if (profileError || !profile) {
       return NextResponse.json({ error: 'ไม่พบโปรไฟล์ผู้ใช้' }, { status: 404 });
+    }
+
+    const access = await assertUserCanAccessApp(user.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     return NextResponse.json({ profile });

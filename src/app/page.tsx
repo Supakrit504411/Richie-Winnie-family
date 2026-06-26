@@ -22,7 +22,26 @@ export default function Home() {
   const [showReset, setShowReset] = useState(false);
   const [resetInviteCode, setResetInviteCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [registrationSecret, setRegistrationSecret] = useState('');
+  const [registrationOpen, setRegistrationOpen] = useState(true);
+  const [registrationSecretRequired, setRegistrationSecretRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((data) => {
+        setRegistrationOpen(data.registrationOpen !== false);
+        setRegistrationSecretRequired(Boolean(data.registrationSecretRequired));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!registrationOpen && mode === 'register') {
+      setMode('login');
+    }
+  }, [registrationOpen, mode]);
 
   useEffect(() => {
     if (mode === 'register' && role === 'child') {
@@ -115,7 +134,8 @@ export default function Home() {
         undefined,
         selectedParent || undefined,
         role === 'parent' ? parentMode : undefined,
-        role === 'parent' && parentMode === 'join' ? familyInviteCode.trim() : undefined
+        role === 'parent' && parentMode === 'join' ? familyInviteCode.trim() : undefined,
+        role === 'parent' && parentMode === 'create' ? registrationSecret.trim() : undefined
       );
       if (!result.success) {
         hideAlert();
@@ -165,20 +185,28 @@ export default function Home() {
             >
               เข้าสู่ระบบ
             </button>
-            <button
-              className="flex-1 py-3 font-bold"
-              style={{
-                background: mode === 'register' ? 'var(--coral)' : 'transparent',
-                color: mode === 'register' ? 'white' : 'var(--ink-soft)',
-              }}
-              onClick={() => setMode('register')}
-            >
-              สมัคร
-            </button>
+            {registrationOpen && (
+              <button
+                className="flex-1 py-3 font-bold"
+                style={{
+                  background: mode === 'register' ? 'var(--coral)' : 'transparent',
+                  color: mode === 'register' ? 'white' : 'var(--ink-soft)',
+                }}
+                onClick={() => setMode('register')}
+              >
+                สมัคร
+              </button>
+            )}
           </div>
 
+          {!registrationOpen && mode === 'register' && (
+            <p className="muted text-sm mb-4 text-center">
+              ปิดรับสมัครสมาชิกใหม่ — ใช้บัญชีที่มีอยู่เพื่อเข้าสู่ระบบ
+            </p>
+          )}
+
           {/* Role Selection (Register only) */}
-          {mode === 'register' && (
+          {registrationOpen && mode === 'register' && (
             <div className="mb-6">
               <label className="field-label">คุณคือใคร?</label>
               <div className="flex gap-3">
@@ -207,7 +235,7 @@ export default function Home() {
           )}
 
           {/* Parent mode (Register parent only) */}
-          {mode === 'register' && role === 'parent' && (
+          {registrationOpen && mode === 'register' && role === 'parent' && (
             <div className="mb-6">
               <label className="field-label">สมัครในฐานะ</label>
               <div className="flex gap-3 mb-3">
@@ -248,13 +276,26 @@ export default function Home() {
                 </div>
               )}
               {parentMode === 'create' && (
-                <p className="muted text-sm">หลังสมัครจะได้รหัสเชิญให้แม่/พ่ออีกคนเข้าร่วมครอบครัวเดียวกัน</p>
+                <>
+                  <p className="muted text-sm mb-3">หลังสมัครจะได้รหัสเชิญให้แม่/พ่ออีกคนเข้าร่วมครอบครัวเดียวกัน</p>
+                  {registrationSecretRequired && (
+                    <div className="field">
+                      <label className="field-label">รหัสลับสำหรับสมัคร (จากผู้ดูแลระบบ)</label>
+                      <input
+                        type="password"
+                        value={registrationSecret}
+                        onChange={(e) => setRegistrationSecret(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
 
           {/* Parent Selection (Child Register only) */}
-          {mode === 'register' && role === 'child' && (
+          {registrationOpen && mode === 'register' && role === 'child' && (
             <div className="mb-6">
               <label className="field-label">เลือกพ่อ/แม่ ของคุณ</label>
               <select
@@ -325,7 +366,7 @@ export default function Home() {
             </div>
             )}
 
-            {mode === 'register' && (
+            {registrationOpen && mode === 'register' && (
             <div className="field">
               <label className="field-label">รหัสผ่าน</label>
               <input

@@ -9,6 +9,7 @@ import { User, Mission, Submission, WishlistRequest } from '@/lib/types';
 import { CHAR_LEVELS, HOUSE_LEVELS, CAR_LEVELS, charLevelInfo, fmtCoin } from '@/lib/utils';
 import { submissionStatusEmoji } from '@/lib/family';
 import { showAlert, hideAlert } from '@/components/SweetAlert';
+import ProfileAvatarEditor from '@/components/ProfileAvatarEditor';
 
 export default function ChildDashboard() {
   const { user, logout, loading } = useAuth();
@@ -43,7 +44,19 @@ export default function ChildDashboard() {
     router.replace('/');
   }
 
+  async function refreshProfile(userId: string) {
+    const { data: freshProfile } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    if (freshProfile) setChild(freshProfile);
+    return freshProfile;
+  }
+
   async function fetchChildData(profile: User) {
+    await refreshProfile(profile.id);
+
     const membersRes = await fetchWithAuth('/api/family/members?role=child');
     const membersData = await membersRes.json();
     const siblingsData = membersRes.ok
@@ -167,7 +180,16 @@ export default function ChildDashboard() {
       <div className="p-4 card mb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <span className="text-4xl">{childProfile.avatar || '🐯'}</span>
+            {childProfile.avatar_url ? (
+              <img
+                src={childProfile.avatar_url}
+                alt="Profile"
+                className="rounded-full object-cover"
+                style={{ width: 56, height: 56 }}
+              />
+            ) : (
+              <span className="text-4xl">{childProfile.avatar || '🐯'}</span>
+            )}
             <div>
               <h2 className="text-xl font-bold">{childProfile.username}</h2>
               <p className="muted">Level {levelInfo.level}</p>
@@ -202,7 +224,12 @@ export default function ChildDashboard() {
       {/* Tab Content */}
       <div className="px-4">
         {activeTab === 'home' && (
-          <HomeTab child={childProfile} levelInfo={levelInfo} siblings={siblings} />
+          <HomeTab
+            child={childProfile}
+            levelInfo={levelInfo}
+            siblings={siblings}
+            onProfileUpdated={(url) => setChild((prev) => prev ? { ...prev, avatar_url: url } : prev)}
+          />
         )}
         {activeTab === 'quests' && (
           <QuestsTab
@@ -242,10 +269,12 @@ function HomeTab({
   child,
   levelInfo,
   siblings,
+  onProfileUpdated,
 }: {
   child: User;
   levelInfo: ReturnType<typeof charLevelInfo>;
   siblings: User[];
+  onProfileUpdated?: (url: string) => void;
 }) {
   const house = HOUSE_LEVELS.find(h => h.level === child.house_level) || HOUSE_LEVELS[0];
   const car = CAR_LEVELS.find(c => c.level === child.car_level) || CAR_LEVELS[0];
@@ -254,6 +283,17 @@ function HomeTab({
 
   return (
     <div>
+      <div className="card mb-4">
+        <h3 className="text-lg font-bold mb-3">👤 โปรไฟล์ของฉัน</h3>
+        <ProfileAvatarEditor
+          userId={child.id}
+          emoji={child.avatar || '🐯'}
+          avatarUrl={child.avatar_url}
+          onUpdated={onProfileUpdated}
+          size="sm"
+        />
+      </div>
+
       {/* Sibling leaderboard */}
       {allKids.length > 1 && (
         <div className="card mb-4">
