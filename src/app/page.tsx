@@ -35,6 +35,7 @@ export default function Home() {
 
   useEffect(() => {
     if (user) {
+      hideAlert();
       if (user.role === 'parent') {
         router.push('/dashboard/parent');
       } else {
@@ -93,6 +94,8 @@ export default function Home() {
       if (!result.success) {
         hideAlert();
         setError(result.error || 'เข้าสู่ระบบไม่สำเร็จ');
+      } else {
+        hideAlert();
       }
     } else {
       if (role === 'child' && !selectedParent) {
@@ -117,6 +120,8 @@ export default function Home() {
       if (!result.success) {
         hideAlert();
         setError(result.error || 'สมัครไม่สำเร็จ');
+      } else {
+        hideAlert();
       }
     }
     } finally {

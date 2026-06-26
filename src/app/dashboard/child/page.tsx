@@ -21,6 +21,10 @@ export default function ChildDashboard() {
   const [siblingSubmissions, setSiblingSubmissions] = useState<Submission[]>([]);
 
   useEffect(() => {
+    hideAlert();
+  }, []);
+
+  useEffect(() => {
     if (loading) return;
     if (!user) {
       router.replace('/');

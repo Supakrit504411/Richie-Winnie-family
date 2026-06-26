@@ -20,6 +20,10 @@ export default function ParentDashboard() {
   const [wishlist, setWishlist] = useState<WishlistRequest[]>([]);
 
   useEffect(() => {
+    hideAlert();
+  }, []);
+
+  useEffect(() => {
     if (loading) return;
     if (!user) {
       router.replace('/');
