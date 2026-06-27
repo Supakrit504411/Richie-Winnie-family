@@ -22,7 +22,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
+# local env files (never publish secrets)
+.env
 .env*.local
 
 # vercel
@@ -31,3 +32,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ============================================================
+# Local-only — ไม่ push ขึ้น GitHub
+# แอปรันได้ปกติถ้า Supabase ตั้งค่าแล้ว + มี .env.local ในเครื่อง
+# ============================================================
+*.sql
+*.md
+Prompt*.txt
