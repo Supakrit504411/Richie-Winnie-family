@@ -170,6 +170,7 @@ export default function ParentDashboard() {
             redemptions={redemptions}
             wishlist={wishlist}
             children={children}
+            onRefresh={() => parentProfile && fetchParentData(parentProfile)}
           />
         )}
         {activeTab === 'missions' && (
@@ -378,11 +379,13 @@ function ReviewTab({
   redemptions,
   wishlist,
   children,
+  onRefresh,
 }: {
   submissions: Submission[];
   redemptions: Redemption[];
   wishlist: WishlistRequest[];
   children: User[];
+  onRefresh: () => Promise<void>;
 }) {
   const { user } = useAuth();
   const [showReject, setShowReject] = useState<string | null>(null);
@@ -468,6 +471,7 @@ function ReviewTab({
         return;
       }
 
+      await onRefresh();
       hideAlert();
       showAlert({
         title: 'อนุมัติแล้ว!',
@@ -476,7 +480,6 @@ function ReviewTab({
         timer: 1500,
         showConfirmButton: false,
       });
-      setTimeout(() => window.location.reload(), 1200);
     } catch (err: unknown) {
       hideAlert();
       showAlert({
@@ -513,6 +516,7 @@ function ReviewTab({
       setShowReject(null);
       setRejectReason('');
       setPenalty(0);
+      await onRefresh();
       hideAlert();
       showAlert({
         title: 'บันทึกแล้ว',
@@ -521,7 +525,6 @@ function ReviewTab({
         timer: 1500,
         showConfirmButton: false,
       });
-      setTimeout(() => window.location.reload(), 1200);
     } catch (err: unknown) {
       hideAlert();
       showAlert({
@@ -545,7 +548,7 @@ function ReviewTab({
       showAlert({ title: 'อนุมัติไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
       return;
     }
-    window.location.reload();
+    await onRefresh();
   }
 
   async function handleWishReject(wishId: string) {
@@ -560,7 +563,7 @@ function ReviewTab({
       showAlert({ title: 'ปฏิเสธไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
       return;
     }
-    window.location.reload();
+    await onRefresh();
   }
 
   const pendingSubs = submissions.filter(s => s.status === 'pending');
@@ -758,7 +761,7 @@ function ReviewTab({
                   status: 'fulfilled',
                   fulfilled_at: new Date().toISOString(),
                 }).eq('id', redemption.id);
-                window.location.reload();
+                await onRefresh();
               }}
             >
               ✅ จัดให้แล้ว

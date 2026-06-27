@@ -263,6 +263,7 @@ export default function ChildDashboard() {
             childId={user.id}
             siblings={siblings}
             siblingSubmissions={siblingSubmissions}
+            onRefresh={() => fetchChildData(childProfile)}
           />
         )}
         {activeTab === 'shop' && (
@@ -394,12 +395,14 @@ function QuestsTab({
   childId,
   siblings,
   siblingSubmissions,
+  onRefresh,
 }: {
   missions: Mission[];
   submissions: Submission[];
   childId: string;
   siblings: User[];
   siblingSubmissions: Submission[];
+  onRefresh: () => Promise<void>;
 }) {
   const [showSubmit, setShowSubmit] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -474,7 +477,7 @@ function QuestsTab({
       setShowSubmit(null);
       setNote('');
       setEvidenceUrls([]);
-      setTimeout(() => window.location.reload(), 1500);
+      await onRefresh();
     } catch (err: any) {
       hideAlert();
       showAlert({
