@@ -99,6 +99,29 @@ export default function ChildDashboard() {
       .order('created_at', { ascending: false });
 
     if (subsData) setSubmissions(subsData);
+
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentPenalties } = await supabase
+      .from('coin_history')
+      .select('*')
+      .eq('child_id', profile.id)
+      .eq('kind', 'penalty')
+      .gte('created_at', oneDayAgo)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const latestPenalty = recentPenalties?.[0];
+    if (latestPenalty && typeof window !== 'undefined') {
+      const seenKey = `penalty_seen_${latestPenalty.id}`;
+      if (!localStorage.getItem(seenKey)) {
+        localStorage.setItem(seenKey, '1');
+        showAlert({
+          title: '⚠️ พ่อแม่มีข้อความถึงคุณ',
+          text: latestPenalty.reason,
+          icon: 'warning',
+        });
+      }
+    }
   }
 
   // Check for upcoming deadlines and show notifications
@@ -243,7 +266,12 @@ export default function ChildDashboard() {
           />
         )}
         {activeTab === 'shop' && (
-          <ShopTab childId={user.id} />
+          <ShopTab
+            childId={user.id}
+            userCoins={childProfile.coins}
+            onCoinsChange={(coins) => setChild((prev) => prev ? { ...prev, coins } : prev)}
+            onGoToQuests={() => setActiveTab('quests')}
+          />
         )}
         {activeTab === 'history' && (
           <HistoryTab childId={user.id} />
@@ -590,7 +618,17 @@ function QuestsTab({
   );
 }
 
-function ShopTab({ childId }: { childId: string }) {
+function ShopTab({
+  childId,
+  userCoins,
+  onCoinsChange,
+  onGoToQuests,
+}: {
+  childId: string;
+  userCoins: number;
+  onCoinsChange: (coins: number) => void;
+  onGoToQuests: () => void;
+}) {
   const [shopItems, setShopItems] = useState<any[]>([]);
   const [showRedeem, setShowRedeem] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<WishlistRequest[]>([]);
@@ -657,18 +695,54 @@ function ShopTab({ childId }: { childId: string }) {
     rejected: '❌ ไม่อนุมัติ',
   };
 
-  async function handleRedeem(itemId: string) {
+  async function handleRedeem(itemId: string, itemName: string, price: number) {
     if (!childId) return;
 
-    const { error } = await supabase.from('redemptions').insert({
-      child_id: childId,
-      item_id: itemId,
-      status: 'pending',
-    });
+    if (userCoins < price) {
+      const shortage = price - userCoins;
+      showAlert({
+        title: 'เหรียญไม่พอ!',
+        text: `"${itemName}" ราคา ${price} 🪙 แต่คุณมี ${userCoins} 🪙\nขาดอีก ${shortage} 🪙\n\nอยากทำภารกิจเพิ่มไหม?`,
+        icon: 'warning',
+        confirmButtonText: 'ไปทำภารกิจ',
+        cancelButtonText: 'ปิด',
+        onConfirm: onGoToQuests,
+      });
+      return;
+    }
 
-    if (error) {
-      showAlert({ title: 'แลกไม่สำเร็จ', text: error.message, icon: 'error' });
-    } else {
+    showAlert({ title: 'กำลังแลก...', icon: 'loading', showConfirmButton: false });
+
+    try {
+      const res = await fetchWithAuth('/api/redemptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        hideAlert();
+        if (data.shortage != null) {
+          showAlert({
+            title: 'เหรียญไม่พอ!',
+            text: `"${itemName}" ราคา ${data.price} 🪙 แต่คุณมี ${data.coins} 🪙\nขาดอีก ${data.shortage} 🪙\n\nอยากทำภารกิจเพิ่มไหม?`,
+            icon: 'warning',
+            confirmButtonText: 'ไปทำภารกิจ',
+            cancelButtonText: 'ปิด',
+            onConfirm: onGoToQuests,
+          });
+        } else {
+          showAlert({ title: 'แลกไม่สำเร็จ', text: data.error || 'กรุณาลองใหม่', icon: 'error' });
+        }
+        return;
+      }
+
+      if (typeof data.new_coins === 'number') {
+        onCoinsChange(data.new_coins);
+      }
+
+      hideAlert();
       showAlert({
         title: 'ส่งคำขอแลกแล้ว!',
         text: 'รอพ่อแม่จัดให้นะ',
@@ -677,8 +751,30 @@ function ShopTab({ childId }: { childId: string }) {
         showConfirmButton: false,
       });
       setShowRedeem(null);
-      setTimeout(() => window.location.reload(), 1500);
+    } catch (err: unknown) {
+      hideAlert();
+      showAlert({
+        title: 'แลกไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
     }
+  }
+
+  function handleRedeemClick(item: { id: string; name: string; price: number }) {
+    if (userCoins < item.price) {
+      const shortage = item.price - userCoins;
+      showAlert({
+        title: 'เหรียญไม่พอ!',
+        text: `"${item.name}" ราคา ${item.price} 🪙 แต่คุณมี ${userCoins} 🪙\nขาดอีก ${shortage} 🪙\n\nอยากทำภารกิจเพิ่มไหม?`,
+        icon: 'warning',
+        confirmButtonText: 'ไปทำภารกิจ',
+        cancelButtonText: 'ปิด',
+        onConfirm: onGoToQuests,
+      });
+      return;
+    }
+    setShowRedeem(item.id);
   }
 
   return (
@@ -746,7 +842,9 @@ function ShopTab({ childId }: { childId: string }) {
       </div>
 
       <h3 className="text-lg font-bold mb-3">🛒 ร้านของรางวัล</h3>
-      {shopItems.map(item => (
+      {shopItems.map(item => {
+        const canAfford = userCoins >= item.price;
+        return (
         <div key={item.id} className="card mb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -754,11 +852,16 @@ function ShopTab({ childId }: { childId: string }) {
               <div>
                 <p className="font-bold">{item.name}</p>
                 <p className="muted text-sm">{item.price} 🪙</p>
+                {!canAfford && (
+                  <p className="text-sm" style={{ color: 'var(--danger, #c0392b)' }}>
+                    ขาดอีก {item.price - userCoins} 🪙
+                  </p>
+                )}
               </div>
             </div>
             <button
-              className="btn btn-gold btn-sm"
-              onClick={() => setShowRedeem(item.id)}
+              className={`btn btn-sm ${canAfford ? 'btn-gold' : 'btn-ghost'}`}
+              onClick={() => handleRedeemClick(item)}
             >
               แลก
             </button>
@@ -766,11 +869,12 @@ function ShopTab({ childId }: { childId: string }) {
 
           {showRedeem === item.id && (
             <div className="mt-3 p-3 rounded-xl" style={{ background: 'var(--cream)' }}>
-              <p className="mb-2">ต้องการแลก "{item.name}" ใช่ไหม?</p>
+              <p className="mb-2">ต้องการแลก "{item.name}" ({item.price} 🪙) ใช่ไหม?</p>
+              <p className="muted text-sm mb-2">เหรียญคงเหลือหลังแลก: {userCoins - item.price} 🪙</p>
               <div className="flex gap-2">
                 <button
                   className="btn btn-primary btn-sm flex-1"
-                  onClick={() => handleRedeem(item.id)}
+                  onClick={() => handleRedeem(item.id, item.name, item.price)}
                 >
                   ยืนยัน
                 </button>
@@ -784,7 +888,8 @@ function ShopTab({ childId }: { childId: string }) {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

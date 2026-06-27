@@ -455,6 +455,20 @@ img {
   min-width: 100px;
 }
 
+.sweet-alert-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sweet-alert-actions-dual {
+  flex-direction: column;
+}
+
+.sweet-alert-actions-dual .sweet-alert-btn {
+  width: 100%;
+}
+
 .sweet-alert-spinner {
   width: 40px;
   height: 40px;

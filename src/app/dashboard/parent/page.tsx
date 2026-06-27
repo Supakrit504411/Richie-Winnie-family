@@ -159,7 +159,10 @@ export default function ParentDashboard() {
       {/* Tab Content */}
       <div className="px-4">
         {activeTab === 'overview' && (
-          <OverviewTab children={children} />
+          <OverviewTab
+            children={children}
+            onRefresh={() => parentProfile && fetchParentData(parentProfile)}
+          />
         )}
         {activeTab === 'review' && (
           <ReviewTab
@@ -200,7 +203,80 @@ export default function ParentDashboard() {
   );
 }
 
-function OverviewTab({ children }: { children: User[] }) {
+function OverviewTab({
+  children,
+  onRefresh,
+}: {
+  children: User[];
+  onRefresh: () => void;
+}) {
+  const [penaltyChildId, setPenaltyChildId] = useState('');
+  const [penaltyReason, setPenaltyReason] = useState('');
+  const [penaltyAmount, setPenaltyAmount] = useState('');
+  const [submittingPenalty, setSubmittingPenalty] = useState(false);
+
+  useEffect(() => {
+    if (children.length > 0 && !penaltyChildId) {
+      setPenaltyChildId(children[0].id);
+    }
+  }, [children, penaltyChildId]);
+
+  async function handlePenaltySubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!penaltyChildId || !penaltyReason.trim()) return;
+
+    const amount = penaltyAmount ? Math.max(0, parseInt(penaltyAmount, 10) || 0) : 0;
+
+    setSubmittingPenalty(true);
+    showAlert({ title: 'กำลังบันทึก...', icon: 'loading', showConfirmButton: false });
+
+    try {
+      const res = await fetchWithAuth('/api/children/penalty', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          child_id: penaltyChildId,
+          reason: penaltyReason.trim(),
+          amount,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        hideAlert();
+        showAlert({
+          title: 'บันทึกไม่สำเร็จ',
+          text: data.error || 'กรุณาลองใหม่',
+          icon: 'error',
+        });
+        return;
+      }
+
+      setPenaltyReason('');
+      setPenaltyAmount('');
+      onRefresh();
+      hideAlert();
+      showAlert({
+        title: amount > 0 ? 'ตักเตือนและหักเหรียญแล้ว' : 'ส่งข้อความตักเตือนแล้ว',
+        text: amount > 0
+          ? `หัก ${amount} 🪙 แล้ว ลูกจะเห็นในประวัติเหรียญ`
+          : 'ลูกจะเห็นข้อความในประวัติเหรียญ',
+        icon: 'success',
+        timer: 2500,
+        showConfirmButton: false,
+      });
+    } catch (err: unknown) {
+      hideAlert();
+      showAlert({
+        title: 'บันทึกไม่สำเร็จ',
+        text: err instanceof Error ? err.message : 'กรุณาลองใหม่',
+        icon: 'error',
+      });
+    } finally {
+      setSubmittingPenalty(false);
+    }
+  }
+
   return (
     <div>
       <h3 className="text-lg font-bold mb-3">👨‍👩‍👧‍👦 ลูกของคุณ</h3>
@@ -233,6 +309,64 @@ function OverviewTab({ children }: { children: User[] }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {children.length > 0 && (
+        <div className="card mt-6">
+          <h3 className="text-lg font-bold mb-2">⚠️ ตักเตือน / หักคะแนน</h3>
+          <p className="muted text-sm mb-3">
+            สื่อสารประเด็นที่อยากบอกลูก — ใส่ข้อความตักเตือน และหักเหรียญได้ (ไม่บังคับ)
+          </p>
+          <form onSubmit={handlePenaltySubmit}>
+            <div className="field">
+              <label className="field-label">เลือกลูก</label>
+              <select
+                className="w-full p-3 rounded-xl border-2"
+                style={{ borderColor: 'var(--line)' }}
+                value={penaltyChildId}
+                onChange={(e) => setPenaltyChildId(e.target.value)}
+                required
+              >
+                {children.map((child) => (
+                  <option key={child.id} value={child.id}>
+                    {child.avatar} {child.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label className="field-label">ข้อความตักเตือน</label>
+              <input
+                type="text"
+                className="w-full p-3 rounded-xl border-2"
+                style={{ borderColor: 'var(--line)' }}
+                value={penaltyReason}
+                onChange={(e) => setPenaltyReason(e.target.value)}
+                placeholder="เช่น พูดไม่สุภาพ, ไม่ทำตามที่ตกลง"
+                required
+              />
+            </div>
+            <div className="field">
+              <label className="field-label">หักเหรียญ (ไม่บังคับ)</label>
+              <input
+                type="number"
+                className="w-full p-3 rounded-xl border-2"
+                style={{ borderColor: 'var(--line)' }}
+                value={penaltyAmount}
+                onChange={(e) => setPenaltyAmount(e.target.value)}
+                placeholder="เช่น 20 — ว่างไว้ถ้าแค่ตักเตือน"
+                min={0}
+              />
+            </div>
+            <button
+              type="submit"
+              className="btn btn-danger btn-block"
+              disabled={submittingPenalty}
+            >
+              {submittingPenalty ? 'กำลังบันทึก...' : 'ส่งตักเตือน'}
+            </button>
+          </form>
         </div>
       )}
     </div>

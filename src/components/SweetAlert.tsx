@@ -8,6 +8,10 @@ export interface SweetAlertOptions {
   icon?: 'success' | 'error' | 'warning' | 'info' | 'loading';
   timer?: number;
   showConfirmButton?: boolean;
+  confirmButtonText?: string;
+  cancelButtonText?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
 type AlertState = SweetAlertOptions | null;
@@ -39,6 +43,18 @@ function SweetAlertModal({
 
   const icon = iconMap[options.icon || 'info'];
   const isLoading = options.icon === 'loading';
+  const hasCancel = Boolean(options.cancelButtonText);
+  const hasCustomConfirm = Boolean(options.onConfirm);
+
+  function handleConfirm() {
+    options.onConfirm?.();
+    onClose();
+  }
+
+  function handleCancel() {
+    options.onCancel?.();
+    onClose();
+  }
 
   return (
     <div className="sweet-alert-overlay" onClick={isLoading ? undefined : onClose}>
@@ -48,9 +64,19 @@ function SweetAlertModal({
         {options.text && <p className="sweet-alert-text">{options.text}</p>}
         {isLoading && <div className="sweet-alert-spinner" />}
         {!isLoading && options.showConfirmButton !== false && (
-          <button className="btn btn-primary sweet-alert-btn" onClick={onClose}>
-            ตกลง
-          </button>
+          <div className={`sweet-alert-actions ${hasCancel ? 'sweet-alert-actions-dual' : ''}`}>
+            {hasCancel && (
+              <button className="btn btn-ghost sweet-alert-btn" onClick={handleCancel}>
+                {options.cancelButtonText}
+              </button>
+            )}
+            <button
+              className="btn btn-primary sweet-alert-btn"
+              onClick={hasCustomConfirm ? handleConfirm : onClose}
+            >
+              {options.confirmButtonText || 'ตกลง'}
+            </button>
+          </div>
         )}
       </div>
     </div>
